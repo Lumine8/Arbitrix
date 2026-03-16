@@ -139,9 +139,14 @@ export const STOCKS = [
    fetch.js will use mock data instead.
 ═══════════════════════════════════════════ */
 
-const PROXIES = [
+// ═════════════════════════════════════════════
+// PROXY SERVICES FOR CORS BYPASS
+// ═════════════════════════════════════════════
+export const PROXIES = [
   (url) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
   (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  (url) => `https://thingproxy.freeboard.io/fetch/${encodeURIComponent(url)}`,
+  (url) => `https://jsonpeep.vercel.app/api/proxy?url=${encodeURIComponent(url)}`,
 ];
 
 export async function fetchPrices(symbols) {

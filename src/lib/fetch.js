@@ -1,43 +1,61 @@
-/* ═══════════════════════════════════════════
-   ARBITRIX — Yahoo Finance Data Fetcher
-   Real NSE data via CORS proxy fallback chain
-═══════════════════════════════════════════ */
+/* ════════════════════════════════════════════
+    ARBITRIX — Yahoo Finance Data Fetcher
+    Real NSE data via backend proxy to avoid CORS issues
+════════════════════════════════════════════ */
 
-import { stockInfo } from './constants'
+import { stockInfo, PROXIES } from './constants'
 
 export async function fetchStock(symbol) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=6mo`
-
-  // Try direct fetch first (might work in some environments)
   try {
-    const directResponse = await fetch(url, { signal: AbortSignal.timeout(5000) })
-    if (directResponse.ok) {
-      const directData = await directResponse.json()
-      if (directData.chart && directData.chart.result && directData.chart.result[0]) {
-        return parseYahooResponse(directData, symbol)
-      }
+    // First try to get data from our backend proxy
+    const backendUrl = `${window.location.origin}/api/stock/${symbol}`
+    const backendResponse = await fetch(backendUrl, { 
+      signal: AbortSignal.timeout(5000) 
+    })
+    
+    if (backendResponse.ok) {
+      const backendData = await backendResponse.json()
+      return parseYahooResponse(backendData, symbol)
     }
-  } catch (_) {
-    // Direct fetch failed, continue to proxies
-  }
-
-  // Try proxy fallbacks
-  for (const makeProxy of PROXIES) {
+    
+    // If backend fails, fall back to direct fetch with proxy chain
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=6mo`
+    
+    // Try direct fetch first (might work in some environments)
     try {
-      const r = await fetch(makeProxy(url), { signal: AbortSignal.timeout(9000) })
-      if (!r.ok) continue
+      const directResponse = await fetch(url, { signal: AbortSignal.timeout(5000) })
+      if (directResponse.ok) {
+        const directData = await directResponse.json()
+        if (directData.chart && directData.chart.result && directData.chart.result[0]) {
+          return parseYahooResponse(directData, symbol)
+        }
+      }
+    } catch (_) {
+      // Direct fetch failed, continue to proxies
+    }
 
-      const w   = await r.json()
-      const raw = w.contents ? JSON.parse(w.contents) : w
+    // Try proxy fallbacks
+    for (const makeProxy of PROXIES) {
+      try {
+        const r = await fetch(makeProxy(url), { signal: AbortSignal.timeout(9000) })
+        if (!r.ok) continue
 
-      if (!raw || !raw.chart || !raw.chart.result || !raw.chart.result[0]) continue
+        const w   = await r.json()
+        const raw = w.contents ? JSON.parse(w.contents) : w
 
-      return parseYahooResponse(raw, symbol)
-    } catch (_) { continue }
+        if (!raw || !raw.chart || !raw.chart.result || !raw.chart.result[0]) continue
+
+        return parseYahooResponse(raw, symbol)
+      } catch (_) { continue }
+    }
+
+    // Mock fallback with realistic NSE-calibrated price dynamics
+    return makeMockData(symbol)
+  } catch (error) {
+    console.error('Error in fetchStock:', error)
+    // Return mock data as final fallback
+    return makeMockData(symbol)
   }
-
-  // Mock fallback with realistic NSE-calibrated price dynamics
-  return makeMockData(symbol)
 }
 
 // Helper function to parse Yahoo Finance response

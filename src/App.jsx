@@ -3,7 +3,7 @@
    Auto-trading engine, state management, wiring
 ═══════════════════════════════════════════ */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { C, STOCKS, stockInfo, uid, fc, shortSym, INTERVALS, TRADING_PARAMS } from './lib/constants'
 import { analyzeStock } from './lib/analyze'
 import { makeRLFS } from './lib/piec'
@@ -36,14 +36,14 @@ export default function App() {
   const [notifs,       setNotifs]       = useState([])
   const [tradeNote,    setTradeNote]    = useState('')
   const [scanStatus,   setScanStatus]   = useState('ARMED')
-  const [settings,     setSettings]     = useState({
-    autoEnabled:   true,
-    confirmBuy:    true,
-    confirmSell:   true,
-    showWhy:       true,
-    stopLossAuto:  true,
-    notifications: true,
-  })
+   const [settings,     setSettings]     = useState({
+     autoEnabled:   true,
+     confirmBuy:    true,
+     confirmSell:   true,
+     showWhy:       true,
+     stopLossAuto:  true,
+     notifications: true,
+   });;
 
 // Using useRef for values that need to be accessed in callbacks but don't cause re-renders
 const rlfsMap    = useRef({})
