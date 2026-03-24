@@ -6,20 +6,53 @@
 // TIME INTERVALS (in milliseconds)
 // ═════════════════════════════════════════════
 export const INTERVALS = {
-  AUTO_SCAN: 30000,      // 30 seconds
-  PRICE_REFRESH: 45000,  // 45 seconds
-  LOAD_NEXT_TRADE: 400,  // 400ms
-  REJECT_DELAY: 200,     // 200ms
+  AUTO_SCAN: 30000, // 30 seconds
+  PRICE_REFRESH: 45000, // 45 seconds
+  LOAD_NEXT_TRADE: 400, // 400ms
+  REJECT_DELAY: 200, // 200ms
 };
 
 // ═════════════════════════════════════════════
 // TRADING PARAMETERS
 // ═════════════════════════════════════════════
 export const TRADING_PARAMS = {
-  MAX_ALLOCATION_PER_TRADE: 0.30,  // 30% of cash per trade
-  STOP_LOSS_PERCENTAGE: 0.05,      // 5% stop-loss
-  MIN_CONFIDENCE_FOR_TRADE: 30,    // Minimum confidence % to consider a trade
-  BUY_SELL_THRESHOLD: 0.10,        // Signal threshold for BUY/SELL
+  MAX_ALLOCATION_PER_TRADE: 0.3, // 30% of cash per trade
+  STOP_LOSS_PERCENTAGE: 0.05, // 5% stop-loss
+  MIN_CONFIDENCE_FOR_TRADE: 30, // Minimum confidence % to consider a trade
+  BUY_SELL_THRESHOLD: 0.1, // Signal threshold for BUY/SELL
+};
+
+// ═════════════════════════════════════════════
+// TRADING MODES (FULL-AI, SEMI-AI, MANUAL)
+// ═════════════════════════════════════════════
+export const CONTROL_MODES = {
+  FULL_AI: {
+    id: "FULL_AI",
+    name: "🤖 FULL-AI MODE",
+    description: "Automatic execution without confirmation needed",
+    emoji: "🤖",
+    auto_execute: true,
+    requires_confirmation: false,
+    color: "#00e676",
+  },
+  SEMI_AI: {
+    id: "SEMI_AI",
+    name: "👁️ SEMI-AI MODE",
+    description: "AI suggests, user confirms each trade",
+    emoji: "👁️",
+    auto_execute: false,
+    requires_confirmation: true,
+    color: "#ffb300",
+  },
+  MANUAL: {
+    id: "MANUAL",
+    name: "👋 MANUAL MODE",
+    description: "No auto trades, analysis only",
+    emoji: "👋",
+    auto_execute: false,
+    requires_confirmation: false,
+    color: "#4fc3f7",
+  },
 };
 
 // ═════════════════════════════════════════════
@@ -28,49 +61,85 @@ export const TRADING_PARAMS = {
 export const ANALYSIS_PARAMS = {
   // Signal component weights
   EMA_TREND_WEIGHT: 0.28,
-  RSI_WEIGHT: 0.20,
+  RSI_WEIGHT: 0.2,
   MACD_WEIGHT: 0.24,
   BOLLINGER_WEIGHT: 0.16,
   VOLUME_WEIGHT: 0.12,
-  
+
   // Entropy attenuation
   ENTROPY_ATTENUATION_FACTOR: 0.4,
-  
+
   // Prediction parameters
   PREDICTION_DAILY_DRIFT_FACTOR: 0.6,
-  PREDICTION_VOLATILITY_SCALAR: 1 / Math.sqrt(252),  // Annualized to daily
+  PREDICTION_VOLATILITY_SCALAR: 1 / Math.sqrt(252), // Annualized to daily
   PREDICTION_CONFIDENCE_BAND_FACTOR: 0.18,
-  
+
   // RSI parameters
   RSI_PERIOD: 14,
   RSI_OVERBOUGHT: 70,
   RSI_OVERSOLD: 30,
-  
+
   // EMA periods
   EMA_FAST: 9,
   EMA_MEDIUM: 21,
   EMA_SLOW: 50,
-  
+
   // Bollinger Bands
   BOLLINGER_PERIOD: 20,
   BOLLINGER_STD_DEV: 2,
-  
+
   // ATR
   ATR_PERIOD: 14,
-  
+
   // Volume comparison
   VOLUME_SHORT_TERM: 5,
   VOLUME_MEDIUM_TERM: 5,
-  
+
   // Volatility
   VOLATILITY_LOOKBACK: 20,
   TRADING_DAYS_PER_YEAR: 252,
-  
+
   // Feature vector normalization
   FEATURE_VECTOR_SIZE: 5,
-  
+
   // Confidence scaling
   MAX_CONFIDENCE_PERCENTAGE: 88,
+};
+
+// ═════════════════════════════════════════════
+// REINFORCEMENT LEARNING CONFIGURATION
+// ═════════════════════════════════════════════
+export const RL_CONFIG = {
+  // Enable/disable RL system
+  RL_ENABLED: true,
+
+  // Exploration vs Exploitation
+  EPSILON: 0.1, // Initial exploration rate
+  EPSILON_DECAY: 0.995, // Decay rate
+  MIN_EPSILON: 0.01, // Minimum exploration rate
+
+  // Training parameters
+  TRAIN_INTERVAL: 20, // Train after every N trades
+  BATCH_SIZE: 32, // Training batch size
+  MIN_BUFFER_SIZE: 50, // Minimum experiences before training
+  BUFFER_SIZE: 10000, // Replay buffer size
+
+  // Reward function coefficients
+  DRAWDOWN_PENALTY: 0.5, // λ1: Drawdown penalty
+  ENTROPY_PENALTY: 0.3, // λ2: Entropy penalty
+  DRIFT_PENALTY: 0.2, // λ3: Drift penalty
+  OVERTRADING_PENALTY: 0.1, // Penalty for excessive trading
+  DIRECTION_BONUS: 10, // Bonus for correct direction
+
+  // Model architecture
+  INPUT_SIZE: 12, // State vector size
+  HIDDEN_SIZE_1: 64, // First hidden layer
+  HIDDEN_SIZE_2: 32, // Second hidden layer
+  OUTPUT_SIZE: 3, // Actions: BUY, SELL, HOLD
+
+  // Model persistence
+  MODEL_DIR: "./models",
+  SAVE_INTERVAL: 100, // Save model every N training cycles
 };
 
 // ═════════════════════════════════════════════
@@ -146,7 +215,8 @@ export const PROXIES = [
   (url) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
   (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
   (url) => `https://thingproxy.freeboard.io/fetch/${encodeURIComponent(url)}`,
-  (url) => `https://jsonpeep.vercel.app/api/proxy?url=${encodeURIComponent(url)}`,
+  (url) =>
+    `https://jsonpeep.vercel.app/api/proxy?url=${encodeURIComponent(url)}`,
 ];
 
 export async function fetchPrices(symbols) {
