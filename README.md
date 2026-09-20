@@ -2,7 +2,7 @@
 
 ![logo of the project](./public/logo.png)
 
-### Algorithmic Paper Trading for NSE Stocks | EMA · RSI · MACD · Bollinger · Volume
+### Algorithmic Paper Trading for NSE Stocks | EMA · RSI · MACD · Bollinger · Stochastic · Volume
 
 ---
 
@@ -31,7 +31,7 @@
 ### How it works:
 
 1. **Data ingestion** — Fetches OHLCV candles from Yahoo Finance via a backend proxy
-2. **Technical analysis** — Calculates RSI, MACD, EMA trends, Bollinger Bands, Volume, and ATR
+2. **Technical analysis** — Calculates RSI, MACD, EMA trends, Bollinger Bands, Stochastic, Volume, and ATR
 3. **Signal generation** — Weighted composite score from all indicators
 4. **Trade execution** — Paper trades executed in three modes: Full-AI, Semi-AI, or Manual
 5. **Learning** — Adapts indicator weights based on trade outcomes
@@ -53,7 +53,7 @@
 
 ### Intelligence
 
-- **5 Standard Indicators** — RSI, MACD, EMA (9/21/50), Bollinger Bands, Volume
+- **6 Standard Indicators** — RSI, MACD, EMA (9/21/50), Bollinger Bands, Stochastic, Volume
 - **Weighted Composite** — Each indicator scored and weighted for a single confidence score
 - **Confidence Thresholds** — Only trades when composite signal exceeds threshold
 - **Adaptive Learning** — Indicator weights adjusted based on trade outcomes
@@ -180,7 +180,7 @@ arbitrix/
     │
     ├── lib/
     │   ├── constants.js      ← Config: stocks, indicators, params
-    │   ├── ta.js             ← Technical analysis (EMA, RSI, MACD, BB)
+    │   ├── ta.js             ← Technical analysis (EMA, RSI, MACD, BB, Stochastic)
     │   ├── analyze.js        ← Composite signal engine
     │   ├── fetch.js          ← Yahoo Finance data fetching
     │   └── trading.js        ← Trading modes & API integration
@@ -217,12 +217,12 @@ arbitrix/
 Each indicator produces a score from -1 (bearish) to +1 (bullish):
 
 ```
-composite = trend_weight × trend_score
-          + rsi_weight × rsi_score
-          + macd_weight × macd_score
-          + bb_weight × bb_score
-          + vol_weight × vol_score
-          + stoch_weight × stoch_score
+composite = 0.24 × trend_score
+          + 0.17 × rsi_score
+          + 0.20 × macd_score
+          + 0.14 × bb_score
+          + 0.10 × vol_score
+          + 0.15 × stoch_score
 ```
 
 - **composite > threshold** → BUY
