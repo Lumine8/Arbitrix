@@ -167,11 +167,6 @@ export function WatchlistPanel({
                   </span>
                 )}
               </div>
-              {a && a.signal !== 'HOLD' && (
-                <div style={{ marginTop: 4, fontSize: 8, color: C.dim }}>
-                  conf {a.confidence}%
-                </div>
-              )}
             </div>
           )
         })}

@@ -122,7 +122,7 @@ function makeMockData(symbol) {
     history,
     source: 'mock',
     price:     history[history.length - 1].close,
-    prevClose: history[history.length - 2].close,
+    prevClose: history.length > 1 ? history[history.length - 2].close : history[history.length - 1].close,
     name:      info.n,
     pe:        null,
     beta:      null,

@@ -9,8 +9,7 @@ const {
   CashEntry,
 } = require("./models");
 
-const BUY_COMMISSION_RATE = 0.0005;
-const SELL_COMMISSION_RATE = 0.0005;
+const COMMISSION_RATE = 0.0005;
 const SLIPPAGE_RANGE = { min: 0.001, max: 0.003 };
 
 // ═════════════════════════════════════════════════════════════════
@@ -31,9 +30,6 @@ class DecisionLogger {
         stock,
         stockName,
         features,
-        piec,
-        rlfs,
-        sadr,
         decision,
         confidence,
         composite_score,
@@ -58,9 +54,6 @@ class DecisionLogger {
         stock,
         stockName,
         features,
-        piec,
-        rlfs,
-        sadr,
         decision,
         confidence,
         composite_score,
@@ -359,7 +352,7 @@ class PaperTradingEngine {
         const slippagePct = (Math.random() * (SLIPPAGE_RANGE.max - SLIPPAGE_RANGE.min) + SLIPPAGE_RANGE.min);
         const estimatedFill = price * (1 + slippagePct);
         const estimatedCost = estimatedFill * qty;
-        const estimatedCommission = estimatedCost * BUY_COMMISSION_RATE;
+        const estimatedCommission = estimatedCost * COMMISSION_RATE;
         if (estimatedCost + estimatedCommission > cashBalance) {
           const order = new Order({
             userId, sessionId, symbol: stock, side: "BUY", quantity: qty,
@@ -378,15 +371,14 @@ class PaperTradingEngine {
       });
       await order.save();
 
-      // Calculate fill with slippage
+      // Calculate fill with slippage (single random value for consistency)
       const slippagePct = (Math.random() * (SLIPPAGE_RANGE.max - SLIPPAGE_RANGE.min) + SLIPPAGE_RANGE.min);
       const fillPrice = type === "BUY"
         ? price * (1 + slippagePct)
         : price * (1 - slippagePct);
 
       const grossValue = fillPrice * qty;
-      const commissionRate = type === "BUY" ? BUY_COMMISSION_RATE : SELL_COMMISSION_RATE;
-      const commission = grossValue * commissionRate;
+      const commission = grossValue * COMMISSION_RATE;
       const slippageValue = Math.abs(fillPrice - price) * qty;
 
       // Create immutable Execution
@@ -406,61 +398,68 @@ class PaperTradingEngine {
       order.status = "FILLED";
       await order.save();
 
-      // Update Position atomically
-      const pos = await Position.findOne({ userId, symbol: stock }).exec();
-
+      // Update Position
+      let pos;
       if (type === "BUY") {
         const buyCost = grossValue + commission;
+        pos = await Position.findOne({ userId, symbol: stock }).exec();
         if (pos) {
           const newTotalCost = pos.totalCost + buyCost;
           const newQuantity = pos.quantity + qty;
           pos.quantity = newQuantity;
           pos.totalCost = newTotalCost;
           pos.averageCost = newTotalCost / newQuantity;
+          pos.updatedAt = new Date();
+          await pos.save();
         } else {
-          const newPos = new Position({
+          pos = new Position({
             userId, symbol: stock,
             quantity: qty,
             totalCost: grossValue + commission,
             averageCost: (grossValue + commission) / qty,
           });
-          await newPos.save();
+          await pos.save();
         }
       } else {
-        // SELL: reduce position
+        // SELL: atomic check-and-decrement
+        pos = await Position.findOneAndUpdate(
+          { userId, symbol: stock, quantity: { $gte: qty } },
+          { $inc: { quantity: -qty } },
+          { new: true }
+        ).exec();
+        if (!pos) {
+          // Roll back the execution — position was insufficient
+          await Execution.deleteOne({ _id: execution._id });
+          await Order.updateOne({ _id: order._id }, { status: "REJECTED", rejectReason: "Insufficient position" });
+          throw new Error("Insufficient position to sell");
+        }
         const costBasis = pos.averageCost * qty;
         const netProceeds = grossValue - commission;
-        const realizedPnl = netProceeds - costBasis;
-
-        pos.quantity -= qty;
         pos.totalCost = pos.averageCost * pos.quantity;
-        pos.realizedPnl += realizedPnl;
+        pos.realizedPnl += netProceeds - costBasis;
         if (pos.quantity === 0) {
           pos.totalCost = 0;
           pos.averageCost = 0;
         }
-      }
-
-      if (pos) {
         pos.updatedAt = new Date();
         await pos.save();
       }
 
       // Record cash entry
-      const cashBalance = await PaperTradingEngine.getCashBalance(userId);
+      const prevBalance = await PaperTradingEngine.getCashBalance(userId);
       if (type === "BUY") {
         const totalCost = grossValue + commission;
         await new CashEntry({
           userId, executionId: execution._id,
           amount: -totalCost, reason: "BUY_SETTLEMENT",
-          balanceAfter: cashBalance - totalCost,
+          balanceAfter: prevBalance - totalCost,
         }).save();
       } else {
         const netProceeds = grossValue - commission;
         await new CashEntry({
           userId, executionId: execution._id,
           amount: netProceeds, reason: "SELL_SETTLEMENT",
-          balanceAfter: cashBalance + netProceeds,
+          balanceAfter: prevBalance + netProceeds,
         }).save();
       }
 
@@ -552,11 +551,6 @@ class PaperTradingEngine {
     const totalRealizedPnl = closedPositions.reduce((sum, p) => sum + p.realizedPnl, 0);
     const wins = closedPositions.filter(p => p.realizedPnl > 0);
     const losses = closedPositions.filter(p => p.realizedPnl < 0);
-
-    const totalUnrealizedPnl = positions.reduce((sum, p) => {
-      // Use averageCost for unrealized since we don't have live prices here
-      return sum + 0; // Would need current prices for accurate unrealized
-    }, 0);
 
     return {
       cash: +cashBalance.toFixed(2),

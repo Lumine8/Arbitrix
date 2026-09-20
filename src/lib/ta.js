@@ -1,7 +1,9 @@
 /* ═══════════════════════════════════════════
    ARBITRIX — Technical Analysis Engine
    EMA, SMA, RSI, MACD, Bollinger, ATR, Stochastic
-═══════════════════════════════════════════ */
+════════════════════════════════════════════ */
+
+import { ANALYSIS_PARAMS as P } from './constants'
 
 export function ema(prices, n) {
   const k = 2 / (n + 1)
@@ -51,34 +53,29 @@ export function macd(prices) {
   return { line, signal, histogram }
 }
 
-// Import constants for Bollinger Bands parameters
-// Note: We'll import these at the top of the file to avoid circular dependencies
-// For now, we'll keep the values but add comments indicating they should come from constants
-
 export function bollinger(prices) {
-  const mid = sma(prices, 20) // TODO: Replace with ANALYSIS_PARAMS.BOLLINGER_PERIOD
+  const period = P.BOLLINGER_PERIOD
+  const stdDev = P.BOLLINGER_STD_DEV
+  const mid = sma(prices, period)
   const out = []
   for (let i = 0; i < prices.length; i++) {
-    if (i < 19) { out.push({ mid: null, upper: null, lower: null }); continue } // TODO: Replace 19 with BOLLINGER_PERIOD - 1
+    if (i < period - 1) { out.push({ mid: null, upper: null, lower: null }); continue }
     const mn = mid[i]
-    const sl = prices.slice(i - 19, i + 1) // TODO: Replace 19 with BOLLINGER_PERIOD - 1
+    const sl = prices.slice(i - period + 1, i + 1)
     let variance = 0
     for (const v of sl) variance += (v - mn) * (v - mn)
-    const sd = Math.sqrt(variance / 20) // TODO: Replace 20 with BOLLINGER_PERIOD
+    const sd = Math.sqrt(variance / period)
     out.push({
       mid: +mn.toFixed(2),
-      upper: +(mn + 2 * sd).toFixed(2), // TODO: Replace 2 with BOLLINGER_STD_DEV
-      lower: +(mn - 2 * sd).toFixed(2), // TODO: Replace 2 with BOLLINGER_STD_DEV
+      upper: +(mn + stdDev * sd).toFixed(2),
+      lower: +(mn - stdDev * sd).toFixed(2),
     })
   }
   return out
 }
 
-// Import constants for ATR parameters
-// Note: We'll import these at the top of the file to avoid circular dependencies
-// For now, we'll keep the values but add comments indicating they should come from constants
-
 export function atr(highs, lows, closes) {
+  const period = P.ATR_PERIOD
   const tr = []
   for (let i = 0; i < closes.length; i++) {
     if (i === 0) { tr.push(highs[i] - lows[i]); continue }
@@ -88,23 +85,21 @@ export function atr(highs, lows, closes) {
       Math.abs(lows[i] - closes[i - 1])
     ))
   }
-  return ema(tr, 14) // TODO: Replace 14 with ANALYSIS_PARAMS.ATR_PERIOD
+  return ema(tr, period)
 }
 
-// Import constants for volatility parameters
-// Note: We'll import these at the top of the file to avoid circular dependencies
-// For now, we'll keep the values but add comments indicating they should come from constants
-
 export function volatility(prices) {
+  const lookback = P.VOLATILITY_LOOKBACK
+  const daysPerYear = P.TRADING_DAYS_PER_YEAR
   const ret = []
   for (let i = 1; i < prices.length; i++) ret.push(Math.log(prices[i] / prices[i - 1]))
-  const sl = ret.slice(-20) // TODO: Replace 20 with ANALYSIS_PARAMS.VOLATILITY_LOOKBACK
+  const sl = ret.slice(-lookback)
   let mn = 0
   for (const v of sl) mn += v
   mn /= sl.length
   let variance = 0
   for (const v of sl) variance += (v - mn) * (v - mn)
-  return Math.sqrt(variance / sl.length) * Math.sqrt(252) // TODO: Replace 252 with ANALYSIS_PARAMS.TRADING_DAYS_PER_YEAR
+  return Math.sqrt(variance / sl.length) * Math.sqrt(daysPerYear)
 }
 
 export function stochastic(highs, lows, closes, kPeriod = 14, dPeriod = 3) {
@@ -118,7 +113,6 @@ export function stochastic(highs, lows, closes, kPeriod = 14, dPeriod = 3) {
     }
     rawK.push(hh === ll ? 50 : ((closes[i] - ll) / (hh - ll)) * 100)
   }
-  // Smooth %K → %D (SMA of rawK)
   const dLine = []
   for (let i = 0; i < rawK.length; i++) {
     if (i < dPeriod - 1 || rawK[i] === null) { dLine.push(null); continue }

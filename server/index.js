@@ -7,7 +7,7 @@ const helmet = require("helmet");
 const mongoose = require("mongoose");
 
 // Import models and trading engines
-const { User } = require("./models");
+const { User, SystemReport } = require("./models");
 const {
   DecisionLogger,
   TradeEvaluator,
@@ -527,7 +527,6 @@ app.post("/api/reports/session", requireAuth, async (req, res) => {
 app.get("/api/reports/:reportId", requireAuth, async (req, res) => {
   try {
     const { reportId } = req.params;
-    const { SystemReport } = require("./models");
     const report = await SystemReport.findOne({ reportId, userId: req.user.id }).exec();
     if (!report) {
       return res.status(404).json({ error: "Report not found" });

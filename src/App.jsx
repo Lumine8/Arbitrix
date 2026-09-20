@@ -3,8 +3,8 @@
    Auto-trading engine, state management, wiring
 ═══════════════════════════════════════════ */
 
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
-import { C, STOCKS, stockInfo, uid, fc, shortSym, INTERVALS, TRADING_PARAMS } from './lib/constants'
+import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react'
+import { C, STOCKS, uid, fc, shortSym, INTERVALS, TRADING_PARAMS } from './lib/constants'
 import { analyzeStock } from './lib/analyze'
 import { fetchStock } from './lib/fetch'
 import { getMe, executeTradeOnServer, initPaperAccount, getTradeHistory, getPortfolioMetrics } from './lib/trading'
@@ -65,7 +65,7 @@ export default function App() {
     getMe().then(u => { if (u) setUser(u) })
   }, [])
 
-  const autoCount = trades.filter(t => t.isAuto).length
+  const autoCount = useMemo(() => trades.filter(t => t.isAuto).length, [trades])
 
   /* ── Notify toast ── */
   const notify = useCallback((type, msg, detail) => {
@@ -102,7 +102,7 @@ export default function App() {
       [symbol]: { qty: nq, avgPrice: +na.toFixed(2) },
     }
     holdingsR.current = nextHoldings
-    setHoldings(() => nextHoldings)
+    setHoldings(nextHoldings)
 
     setTrades(t => [{
       id: uid(), type: 'BUY', symbol, name: stockMapR.current[symbol]?.name || symbol, qty: qty, price, total: cost,
@@ -158,7 +158,7 @@ export default function App() {
     if (nq === 0) delete nextHoldings[symbol]
     else nextHoldings[symbol] = { ...h, qty: nq }
     holdingsR.current = nextHoldings
-    setHoldings(() => nextHoldings)
+    setHoldings(nextHoldings)
 
     setTrades(t => [{
       id: uid(), type: 'SELL', symbol, name: stockMapR.current[symbol]?.name || symbol, qty: qty, price, pnl, total: proceeds,
@@ -237,9 +237,9 @@ export default function App() {
       const isMock = stk.source === 'mock'
 
       // Stop-loss check
-      const slPrice = h
-        ? h.avgPrice * (1 - parseFloat(slPct) / 100 || TRADING_PARAMS.STOP_LOSS_PERCENTAGE)
-        : null
+      const slVal = parseFloat(slPct)
+      const slFrac = isNaN(slVal) ? TRADING_PARAMS.STOP_LOSS_PERCENTAGE : slVal / 100
+      const slPrice = h ? h.avgPrice * (1 - slFrac) : null
       if (s.stopLossAuto && h && slPrice !== null && price < slPrice) {
         executeTrade('SELL', symbol, h.qty, price, a, true)
         notify('SL', `Stop-loss: ${shortSym(symbol)}`,
@@ -248,7 +248,7 @@ export default function App() {
       }
 
       // BUY signal
-      if (a.signal === 'BUY' && a.confidence > TRADING_PARAMS.MIN_CONFIDENCE_FOR_TRADE) {
+      if (a.signal === 'BUY' && a.confidence > TRADING_PARAMS.MIN_CONFIDENCE_FOR_TRADE && price > 0) {
         // Re-read cash for every candidate because an earlier BUY in this scan
         // may already have reserved part of the available cash.
         const availableCash = cashR.current
@@ -316,56 +316,61 @@ export default function App() {
     const picks = pickStocks(amount)
     setWatchlist(picks)
 
-    await Promise.all(picks.map(async (symbol) => {
-      setLoadMsg(`Loading ${shortSym(symbol)}…`)
-      const data = await fetchStock(symbol)
-      const analysis = analyzeStock(data.history)
-      setStockMap(m => ({ ...m, [symbol]: data }))
-      if (analysis) setAnalyses(a => ({ ...a, [symbol]: analysis }))
-    }))
+    try {
+      const results = await Promise.allSettled(picks.map(async (symbol) => {
+        setLoadMsg(`Loading ${shortSym(symbol)}…`)
+        const data = await fetchStock(symbol)
+        const analysis = analyzeStock(data.history)
+        setStockMap(m => ({ ...m, [symbol]: data }))
+        if (analysis) setAnalyses(a => ({ ...a, [symbol]: analysis }))
+      }))
 
-    // Load backend state (trade history, holdings)
-    const sessionId = sessionIdR.current
-    if (user) {
-      const [history, metrics] = await Promise.all([
-        getTradeHistory(sessionId),
-        getPortfolioMetrics(sessionId),
-      ])
-      if (history.length > 0) {
-        const mapped = history.map(ex => ({
-          id: ex._id || ex.executionId || uid(),
-          type: ex.side || ex.type,
-          symbol: ex.symbol,
-          name: stockMapR.current[ex.symbol]?.name || ex.symbol,
-          qty: ex.quantity || ex.qty,
-          price: ex.fillPrice || ex.price,
-          pnl: ex.realizedPnl,
-          total: ex.grossValue,
-          time: ex.executedAt
-            ? new Date(ex.executedAt).toLocaleTimeString('en-IN')
-            : new Date(ex.timestamp || Date.now()).toLocaleTimeString('en-IN'),
-          signal: ex.signal || '',
-          confidence: ex.decisionConfidence || 0,
-          isAuto: ex.executionMode === 'AUTO',
-        }))
-        setTrades(mapped)
-      }
-      if (metrics.cash != null) {
-        setCash(metrics.cash)
-        cashR.current = metrics.cash
-      }
-      if (metrics.positions && typeof metrics.positions === 'object') {
-        const h = {}
-        for (const [sym, p] of Object.entries(metrics.positions)) {
-          h[sym] = { qty: p.quantity || p.qty || 0, avgPrice: p.avgPrice || p.weightedAvgCost || 0 }
+      // Load backend state (trade history, holdings)
+      const sessionId = sessionIdR.current
+      if (user) {
+        const [history, metrics] = await Promise.all([
+          getTradeHistory(sessionId),
+          getPortfolioMetrics(sessionId),
+        ])
+        if (history.length > 0) {
+          const mapped = history.map(ex => ({
+            id: ex._id || ex.executionId || uid(),
+            type: ex.side || ex.type,
+            symbol: ex.symbol,
+            name: stockMapR.current[ex.symbol]?.name || ex.symbol,
+            qty: ex.quantity || ex.qty,
+            price: ex.fillPrice || ex.price,
+            pnl: ex.realizedPnl,
+            total: ex.grossValue,
+            time: ex.executedAt
+              ? new Date(ex.executedAt).toLocaleTimeString('en-IN')
+              : new Date(ex.timestamp || Date.now()).toLocaleTimeString('en-IN'),
+            signal: ex.signal || '',
+            confidence: ex.decisionConfidence || 0,
+            isAuto: ex.executionMode === 'AUTO',
+          }))
+          setTrades(mapped)
         }
-        setHoldings(h)
-        holdingsR.current = h
+        if (metrics.cash != null) {
+          setCash(metrics.cash)
+          cashR.current = metrics.cash
+        }
+        if (metrics.positions && typeof metrics.positions === 'object') {
+          const h = {}
+          for (const [sym, p] of Object.entries(metrics.positions)) {
+            h[sym] = { qty: p.quantity || p.qty || 0, avgPrice: p.avgPrice || p.weightedAvgCost || 0 }
+          }
+          setHoldings(h)
+          holdingsR.current = h
+        }
       }
-    }
 
-    setLoadMsg('')
-    setSelected(picks[0])
+      setLoadMsg('')
+      setSelected(picks[0])
+    } catch (err) {
+      console.error('handleStart error:', err)
+      setLoadMsg('Error loading — try again')
+    }
   }
 
   /* ── Auto-scan timer ── */
@@ -382,6 +387,14 @@ export default function App() {
     if (loaded > 0 && loaded === watchlist.length) runScan()
   }, [analyses, watchlist.length, screen, runScan])
 
+  /* ── Refresh a single stock's data ── */
+  const refreshOne = useCallback(async (symbol) => {
+    const data = await fetchStock(symbol)
+    const analysis = analyzeStock(data.history)
+    setStockMap(m => ({ ...m, [symbol]: data }))
+    if (analysis) setAnalyses(a => ({ ...a, [symbol]: analysis }))
+  }, [])
+
   /* ── Price refresh every 45s ── */
   useEffect(() => {
     if (screen !== 'trading' || watchlist.length === 0) return
@@ -389,18 +402,13 @@ export default function App() {
       if (refreshing.current) return
       refreshing.current = true
       try {
-        await Promise.all(watchlist.map(async (symbol) => {
-          const data = await fetchStock(symbol)
-          const analysis = analyzeStock(data.history)
-          setStockMap(m => ({ ...m, [symbol]: data }))
-          if (analysis) setAnalyses(a => ({ ...a, [symbol]: analysis }))
-        }))
+        await Promise.allSettled(watchlist.map(s => refreshOne(s)))
       } finally {
         refreshing.current = false
       }
     }, INTERVALS.PRICE_REFRESH)
     return () => clearInterval(timer)
-  }, [screen, watchlist])
+  }, [screen, watchlist, refreshOne])
 
   /* ── Confirmation handlers ── */
   function handleConfirm() {
@@ -417,7 +425,6 @@ export default function App() {
   }
   function handleAutoAll() {
     setSettings(s => ({ ...s, confirmBuy: false, confirmSell: false }))
-    settingsR.current = { ...settingsR.current, confirmBuy: false, confirmSell: false }
     handleConfirm()
   }
 

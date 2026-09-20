@@ -100,13 +100,3 @@ export function StatRow({ label, value, valueColor }) {
   )
 }
 
-/* Loading spinner */
-export function Spinner() {
-  return (
-    <div style={{
-      display: 'inline-block', width: 12, height: 12,
-      border: `2px solid ${C.dim}`, borderTopColor: C.green,
-      borderRadius: '50%', animation: 'spin 0.8s linear infinite',
-    }} />
-  )
-}

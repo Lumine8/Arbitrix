@@ -122,7 +122,6 @@ export function TradingPanel({
             <div style={{ marginTop: 16, padding: 12, background: C.dimmer, fontSize: 10, lineHeight: 2 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 {[
-                  ['Raw signal',  selA.composite],
                   ['Composite',   selA.composite],
                   ['Confidence',  selA.confidence + '%'],
                   ['RSI',         selA.rsi],

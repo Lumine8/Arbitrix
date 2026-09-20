@@ -1,32 +1,31 @@
 /* ═══════════════════════════════════════════
    ARBITRIX — Design Tokens & Stock Universe
-═══════════════════════════════════════════ */
+════════════════════════════════════════════ */
 
 // ═════════════════════════════════════════════
 // TIME INTERVALS (in milliseconds)
 // ═════════════════════════════════════════════
 export const INTERVALS = {
-  AUTO_SCAN: 30000, // 30 seconds
-  PRICE_REFRESH: 45000, // 45 seconds
-  LOAD_NEXT_TRADE: 400, // 400ms
-  REJECT_DELAY: 200, // 200ms
+  AUTO_SCAN: 30000,
+  PRICE_REFRESH: 45000,
+  LOAD_NEXT_TRADE: 400,
+  REJECT_DELAY: 200,
 };
 
 // ═════════════════════════════════════════════
 // TRADING PARAMETERS
 // ═════════════════════════════════════════════
 export const TRADING_PARAMS = {
-  MAX_ALLOCATION_PER_TRADE: 0.3, // 30% of cash per trade
-  STOP_LOSS_PERCENTAGE: 0.05, // 5% stop-loss
-  MIN_CONFIDENCE_FOR_TRADE: 30, // Minimum confidence % to consider a trade
-  BUY_SELL_THRESHOLD: 0.1, // Signal threshold for BUY/SELL
+  MAX_ALLOCATION_PER_TRADE: 0.3,
+  STOP_LOSS_PERCENTAGE: 0.05,
+  MIN_CONFIDENCE_FOR_TRADE: 30,
+  BUY_SELL_THRESHOLD: 0.1,
 };
 
 // ═════════════════════════════════════════════
 // ANALYSIS PARAMETERS
 // ═════════════════════════════════════════════
 export const ANALYSIS_PARAMS = {
-  // Signal component weights
   EMA_TREND_WEIGHT: 0.24,
   RSI_WEIGHT: 0.17,
   MACD_WEIGHT: 0.20,
@@ -34,22 +33,25 @@ export const ANALYSIS_PARAMS = {
   VOLUME_WEIGHT: 0.10,
   STOCH_WEIGHT: 0.15,
 
-  // RSI parameters
   RSI_PERIOD: 14,
   RSI_OVERBOUGHT: 70,
 
-  // EMA periods
   EMA_FAST: 9,
   EMA_MEDIUM: 21,
   EMA_SLOW: 50,
 
-  // Stochastic parameters
   STOCH_K_PERIOD: 14,
   STOCH_D_PERIOD: 3,
   STOCH_OVERBOUGHT: 80,
   STOCH_OVERSOLD: 20,
 
-  // Confidence scaling
+  BOLLINGER_PERIOD: 20,
+  BOLLINGER_STD_DEV: 2,
+
+  ATR_PERIOD: 14,
+  VOLATILITY_LOOKBACK: 20,
+  TRADING_DAYS_PER_YEAR: 252,
+
   MAX_CONFIDENCE_PERCENTAGE: 88,
 };
 
@@ -82,9 +84,7 @@ export const C = {
 
 /* ═══════════════════════════════════════════
    STOCK UNIVERSE
-   p = approximate base price (used by mock
-   fallback when Yahoo Finance is unreachable)
-═══════════════════════════════════════════ */
+════════════════════════════════════════════ */
 
 export const STOCKS = [
   { s: "RELIANCE.NS", n: "Reliance Industries", sec: "Energy", p: 2900 },
@@ -112,16 +112,9 @@ export const STOCKS = [
 ];
 
 /* ═══════════════════════════════════════════
-   REAL-TIME PRICE FETCH
-   Routes through a CORS proxy so browser
-   requests to Yahoo Finance don't get blocked.
-   Falls back to an empty object on failure —
-   fetch.js will use mock data instead.
-═══════════════════════════════════════════ */
+   PROXY SERVICES FOR CORS BYPASS
+════════════════════════════════════════════ */
 
-// ═════════════════════════════════════════════
-// PROXY SERVICES FOR CORS BYPASS
-// ═════════════════════════════════════════════
 export const PROXIES = [
   (url) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
   (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
@@ -130,42 +123,9 @@ export const PROXIES = [
     `https://jsonpeep.vercel.app/api/proxy?url=${encodeURIComponent(url)}`,
 ];
 
-export async function fetchPrices(symbols) {
-  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols.join(",")}`;
-
-  for (const makeProxy of PROXIES) {
-    try {
-      const res = await fetch(makeProxy(url), {
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!res.ok) continue;
-
-      const w = await res.json();
-      const raw = w.contents ? JSON.parse(w.contents) : w;
-      const results = raw?.quoteResponse?.result;
-
-      if (!Array.isArray(results) || results.length === 0) continue;
-
-      const prices = {};
-      for (const stock of results) {
-        prices[stock.symbol] = {
-          price: stock.regularMarketPrice,
-          change: stock.regularMarketChangePercent,
-          volume: stock.regularMarketVolume,
-        };
-      }
-      return prices;
-    } catch (_) {
-      continue;
-    }
-  }
-
-  return {}; // fetch.js mock fallback will kick in
-}
-
 /* ═══════════════════════════════════════════
    HELPERS
-═══════════════════════════════════════════ */
+════════════════════════════════════════════ */
 
 export function stockInfo(sym) {
   return (
@@ -176,7 +136,7 @@ export function stockInfo(sym) {
 export function fc(n) {
   if (n == null) return "—";
   return (
-    "₹" +
+    "\u20B9" +
     n.toLocaleString("en-IN", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,

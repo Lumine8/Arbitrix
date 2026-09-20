@@ -2,7 +2,7 @@
    ARBITRIX — Auto-Trade Confirmation Modal
 ═══════════════════════════════════════════ */
 
-import { C, fc, fp, shortSym } from '../lib/constants'
+import { C, fc, shortSym } from '../lib/constants'
 import { SigBadge } from './UI'
 
 export function ConfirmModal({ trade, onConfirm, onReject, onAutoAll }) {
