@@ -3,7 +3,7 @@
    Combines TA indicators into composite signal
 ═══════════════════════════════════════════ */
 
-import { ema, rsi, macd, bollinger, atr, volatility, lastValid } from './ta'
+import { ema, rsi, macd, bollinger, atr, volatility, stochastic, lastValid } from './ta'
 import { ANALYSIS_PARAMS } from './constants'
 
 /**
@@ -34,6 +34,7 @@ export function analyzeStock(history) {
   const bbA   = bollinger(closes)
   const atrA  = atr(highs, lows, closes)
   const vol   = volatility(closes)
+  const stoch = stochastic(highs, lows, closes, ANALYSIS_PARAMS.STOCH_K_PERIOD, ANALYSIS_PARAMS.STOCH_D_PERIOD)
 
   const last  = closes[n - 1]
   const rsiV  = lastValid(rsiA) || 50
@@ -44,6 +45,12 @@ export function analyzeStock(history) {
   const ev21  = e21[n - 1]
   const ev50  = e50[n - 1]
   const atrV  = atrA[n - 1] || last * 0.02
+
+  // Stochastic values
+  const stochK = stoch.k[n - 1] ?? 50
+  const stochD = stoch.d[n - 1] ?? 50
+  const prevStochK = n >= 2 ? (stoch.k[n - 2] ?? 50) : stochK
+  const prevStochD = n >= 2 ? (stoch.d[n - 2] ?? 50) : stochD
 
   // Volume comparison
   let rv = 0, pv = 0
@@ -64,7 +71,18 @@ export function analyzeStock(history) {
   const priceDir = (n >= 6 && closes[n - 1] > closes[n - 6]) ? 1 : -1
   const s5 = Math.tanh((rv / pv - 1) * priceDir)
 
-  const composite = +(s1 * ANALYSIS_PARAMS.EMA_TREND_WEIGHT + s2 * ANALYSIS_PARAMS.RSI_WEIGHT + s3 * ANALYSIS_PARAMS.MACD_WEIGHT + s4 * ANALYSIS_PARAMS.BOLLINGER_WEIGHT + s5 * ANALYSIS_PARAMS.VOLUME_WEIGHT).toFixed(3)
+  // Stochastic score: oversold/overbought + %K/%D crossover
+  let s6 = 0
+  if (stochK < ANALYSIS_PARAMS.STOCH_OVERSOLD) s6 = 0.6
+  else if (stochK > ANALYSIS_PARAMS.STOCH_OVERBOUGHT) s6 = -0.6
+  else s6 = (stochK - 50) / 50 * 0.3
+  // %K crossing above %D = bullish momentum
+  if (prevStochK <= prevStochD && stochK > stochD) s6 += 0.4
+  // %K crossing below %D = bearish momentum
+  if (prevStochK >= prevStochD && stochK < stochD) s6 -= 0.4
+  s6 = Math.max(-1, Math.min(1, s6))
+
+  const composite = +(s1 * ANALYSIS_PARAMS.EMA_TREND_WEIGHT + s2 * ANALYSIS_PARAMS.RSI_WEIGHT + s3 * ANALYSIS_PARAMS.MACD_WEIGHT + s4 * ANALYSIS_PARAMS.BOLLINGER_WEIGHT + s5 * ANALYSIS_PARAMS.VOLUME_WEIGHT + s6 * ANALYSIS_PARAMS.STOCH_WEIGHT).toFixed(3)
   const confidence = +Math.min(Math.abs(composite) * 100, ANALYSIS_PARAMS.MAX_CONFIDENCE_PERCENTAGE).toFixed(1)
 
   const signal = composite > 0.10 ? 'BUY'
@@ -77,11 +95,13 @@ export function analyzeStock(history) {
   return {
     signal, composite, confidence,
     rsi: +rsiV.toFixed(1), atr: +atrV.toFixed(2), vol: +(vol * 100).toFixed(1),
+    stochK: +stochK.toFixed(1), stochD: +stochD.toFixed(1),
     ema9: +ev9.toFixed(2), ema21: +ev21.toFixed(2), ema50: +ev50.toFixed(2),
     bb, mH: +mH.toFixed(2),
     scores: {
       trend: +s1.toFixed(2), rsi: +s2.toFixed(2),
       macd: +s3.toFixed(2),  bb:  +s4.toFixed(2), vol: +s5.toFixed(2),
+      stoch: +s6.toFixed(2),
     },
     last, todayChg,
   }

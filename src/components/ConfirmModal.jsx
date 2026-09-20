@@ -73,6 +73,7 @@ export function ConfirmModal({ trade, onConfirm, onReject, onAutoAll }) {
               ['MACD',      a.scores.macd],
               ['Bollinger', a.scores.bb],
               ['Volume',    a.scores.vol],
+              ['Stochastic', a.scores.stoch],
             ].map(([label, val]) => {
               const pct = ((val + 1) / 2) * 100
               const col = val > 0.15 ? C.green : val < -0.15 ? C.red : C.amber

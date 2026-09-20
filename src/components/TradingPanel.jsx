@@ -112,11 +112,12 @@ export function TradingPanel({
             <div style={{ fontSize: 8, color: C.muted, letterSpacing: 3, marginBottom: 14 }}>
               SIGNAL COMPONENT BREAKDOWN
             </div>
-            <ScoreBar label="EMA Trend (w=0.28)"      value={selA.scores.trend} />
-            <ScoreBar label="RSI Momentum (w=0.20)"   value={selA.scores.rsi} />
-            <ScoreBar label="MACD Crossover (w=0.24)" value={selA.scores.macd} />
-            <ScoreBar label="Bollinger Band (w=0.16)" value={selA.scores.bb} />
-            <ScoreBar label="Volume Confirm (w=0.12)" value={selA.scores.vol} />
+            <ScoreBar label="EMA Trend (w=0.24)"      value={selA.scores.trend} />
+            <ScoreBar label="RSI Momentum (w=0.17)"   value={selA.scores.rsi} />
+            <ScoreBar label="MACD Crossover (w=0.20)" value={selA.scores.macd} />
+            <ScoreBar label="Bollinger Band (w=0.14)" value={selA.scores.bb} />
+            <ScoreBar label="Volume Confirm (w=0.10)" value={selA.scores.vol} />
+            <ScoreBar label="Stochastic (w=0.15)"     value={selA.scores.stoch} />
 
             <div style={{ marginTop: 16, padding: 12, background: C.dimmer, fontSize: 10, lineHeight: 2 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -125,6 +126,8 @@ export function TradingPanel({
                   ['Composite',   selA.composite],
                   ['Confidence',  selA.confidence + '%'],
                   ['RSI',         selA.rsi],
+                  ['Stoch %K',    selA.stochK],
+                  ['Stoch %D',    selA.stochD],
                   ['ATR',         selA.atr],
                   ['Volatility',  selA.vol + '%'],
                 ].map(([label, val]) => (

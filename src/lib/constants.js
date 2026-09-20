@@ -27,11 +27,12 @@ export const TRADING_PARAMS = {
 // ═════════════════════════════════════════════
 export const ANALYSIS_PARAMS = {
   // Signal component weights
-  EMA_TREND_WEIGHT: 0.28,
-  RSI_WEIGHT: 0.2,
-  MACD_WEIGHT: 0.24,
-  BOLLINGER_WEIGHT: 0.16,
-  VOLUME_WEIGHT: 0.12,
+  EMA_TREND_WEIGHT: 0.24,
+  RSI_WEIGHT: 0.17,
+  MACD_WEIGHT: 0.20,
+  BOLLINGER_WEIGHT: 0.14,
+  VOLUME_WEIGHT: 0.10,
+  STOCH_WEIGHT: 0.15,
 
   // RSI parameters
   RSI_PERIOD: 14,
@@ -41,6 +42,12 @@ export const ANALYSIS_PARAMS = {
   EMA_FAST: 9,
   EMA_MEDIUM: 21,
   EMA_SLOW: 50,
+
+  // Stochastic parameters
+  STOCH_K_PERIOD: 14,
+  STOCH_D_PERIOD: 3,
+  STOCH_OVERBOUGHT: 80,
+  STOCH_OVERSOLD: 20,
 
   // Confidence scaling
   MAX_CONFIDENCE_PERCENTAGE: 88,

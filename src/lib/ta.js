@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════
    ARBITRIX — Technical Analysis Engine
-   EMA, SMA, RSI, MACD, Bollinger, ATR
+   EMA, SMA, RSI, MACD, Bollinger, ATR, Stochastic
 ═══════════════════════════════════════════ */
 
 export function ema(prices, n) {
@@ -105,6 +105,30 @@ export function volatility(prices) {
   let variance = 0
   for (const v of sl) variance += (v - mn) * (v - mn)
   return Math.sqrt(variance / sl.length) * Math.sqrt(252) // TODO: Replace 252 with ANALYSIS_PARAMS.TRADING_DAYS_PER_YEAR
+}
+
+export function stochastic(highs, lows, closes, kPeriod = 14, dPeriod = 3) {
+  const rawK = []
+  for (let i = 0; i < closes.length; i++) {
+    if (i < kPeriod - 1) { rawK.push(null); continue }
+    let hh = -Infinity, ll = Infinity
+    for (let j = i - kPeriod + 1; j <= i; j++) {
+      if (highs[j] > hh) hh = highs[j]
+      if (lows[j] < ll) ll = lows[j]
+    }
+    rawK.push(hh === ll ? 50 : ((closes[i] - ll) / (hh - ll)) * 100)
+  }
+  // Smooth %K → %D (SMA of rawK)
+  const dLine = []
+  for (let i = 0; i < rawK.length; i++) {
+    if (i < dPeriod - 1 || rawK[i] === null) { dLine.push(null); continue }
+    let sum = 0, cnt = 0
+    for (let j = i - dPeriod + 1; j <= i; j++) {
+      if (rawK[j] !== null) { sum += rawK[j]; cnt++ }
+    }
+    dLine.push(cnt === dPeriod ? sum / dPeriod : null)
+  }
+  return { k: rawK, d: dLine }
 }
 
 export function lastValid(arr) {
