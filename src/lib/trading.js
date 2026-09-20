@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    ARBITRIX — Trading Modes & API Integration
    FULL-AI, SEMI-AI, MANUAL modes with decision logging
-═══════════════════════════════════════════════════════════════ */
+═════════════════════════════════════════════════════════════════ */
 
 /**
  * Trading mode configuration
@@ -31,32 +31,104 @@ export const TRADING_MODES = {
 };
 
 // ═════════════════════════════════════════════════════════════════
-// BACKEND API INTEGRATION
+// AUTH HELPERS
 // ═════════════════════════════════════════════════════════════════
 
 const API_BASE = `${window.location.origin}/api`;
 
+function getToken() {
+  return localStorage.getItem('arbitrix_token');
+}
+
+function authHeaders() {
+  const token = getToken();
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+function authGet(url) {
+  return fetch(url, { headers: authHeaders() });
+}
+
+function authPost(url, body) {
+  return fetch(url, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(body),
+  });
+}
+
+// ═════════════════════════════════════════════════════════════════
+// AUTH API
+// ═════════════════════════════════════════════════════════════════
+
+export async function register(username, email, password, capital) {
+  try {
+    const res = await fetch(`${API_BASE}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, email, password, capital }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Registration failed');
+    localStorage.setItem('arbitrix_token', data.token);
+    return data;
+  } catch (error) {
+    console.error('Register error:', error);
+    throw error;
+  }
+}
+
+export async function login(email, password) {
+  try {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Login failed');
+    localStorage.setItem('arbitrix_token', data.token);
+    return data;
+  } catch (error) {
+    console.error('Login error:', error);
+    throw error;
+  }
+}
+
+export async function getMe() {
+  const token = getToken();
+  if (!token) return null;
+  try {
+    const res = await authGet(`${API_BASE}/auth/me`);
+    if (!res.ok) { localStorage.removeItem('arbitrix_token'); return null; }
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export function logout() {
+  localStorage.removeItem('arbitrix_token');
+}
+
+// ═════════════════════════════════════════════════════════════════
+// BACKEND API INTEGRATION
+// ═════════════════════════════════════════════════════════════════
+
 /**
  * Log a trade decision with full context
  */
-export async function logDecision(userId, sessionId, decisionData) {
+export async function logDecision(sessionId, decisionData) {
   try {
-    const response = await fetch(`${API_BASE}/decisions/log`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId,
-        sessionId,
-        ...decisionData,
-      }),
+    const response = await authPost(`${API_BASE}/decisions/log`, {
+      sessionId,
+      ...decisionData,
     });
-
-    if (!response.ok) {
-      throw new Error("Failed to log decision");
-    }
-
+    if (!response.ok) throw new Error("Failed to log decision");
     const data = await response.json();
-    console.log("✓ Decision logged:", data.decisionId);
     return data;
   } catch (error) {
     console.error("Error logging decision:", error);
@@ -67,11 +139,9 @@ export async function logDecision(userId, sessionId, decisionData) {
 /**
  * Get decision history
  */
-export async function getDecisionHistory(userId, sessionId, limit = 100) {
+export async function getDecisionHistory(sessionId, limit = 100) {
   try {
-    const response = await fetch(
-      `${API_BASE}/decisions/history/${userId}/${sessionId}?limit=${limit}`,
-    );
+    const response = await authGet(`${API_BASE}/decisions/history/${sessionId}?limit=${limit}`);
     const data = await response.json();
     return data.data || [];
   } catch (error) {
@@ -83,24 +153,14 @@ export async function getDecisionHistory(userId, sessionId, limit = 100) {
 /**
  * Execute a simulated trade
  */
-export async function executeTrade(userId, sessionId, tradeData) {
+export async function executeTradeOnServer(sessionId, tradeData) {
   try {
-    const response = await fetch(`${API_BASE}/trades/execute`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId,
-        sessionId,
-        ...tradeData,
-      }),
+    const response = await authPost(`${API_BASE}/trades/execute`, {
+      sessionId,
+      ...tradeData,
     });
-
-    if (!response.ok) {
-      throw new Error("Failed to execute trade");
-    }
-
+    if (!response.ok) throw new Error("Failed to execute trade");
     const data = await response.json();
-    console.log("✓ Trade executed:", data.tradeId);
     return data;
   } catch (error) {
     console.error("Error executing trade:", error);
@@ -109,27 +169,35 @@ export async function executeTrade(userId, sessionId, tradeData) {
 }
 
 /**
+ * Close a trade
+ */
+export async function closeTradeOnServer(tradeId, exitPrice) {
+  try {
+    const response = await authPost(`${API_BASE}/trades/close/${tradeId}`, {
+      exit_price: exitPrice,
+    });
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error || "Failed to close trade");
+    }
+    return await response.json();
+  } catch (error) {
+    console.error("Error closing trade:", error);
+    return null;
+  }
+}
+
+/**
  * Evaluate a completed trade
  */
-export async function evaluateTrade(userId, sessionId, evalData) {
+export async function evaluateTrade(sessionId, evalData) {
   try {
-    const response = await fetch(`${API_BASE}/trades/evaluate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId,
-        sessionId,
-        ...evalData,
-      }),
+    const response = await authPost(`${API_BASE}/trades/evaluate`, {
+      sessionId,
+      ...evalData,
     });
-
-    if (!response.ok) {
-      throw new Error("Failed to evaluate trade");
-    }
-
-    const data = await response.json();
-    console.log("✓ Trade evaluated");
-    return data;
+    if (!response.ok) throw new Error("Failed to evaluate trade");
+    return await response.json();
   } catch (error) {
     console.error("Error evaluating trade:", error);
     return null;
@@ -139,11 +207,9 @@ export async function evaluateTrade(userId, sessionId, evalData) {
 /**
  * Get trade history
  */
-export async function getTradeHistory(userId, sessionId) {
+export async function getTradeHistory(sessionId) {
   try {
-    const response = await fetch(
-      `${API_BASE}/trades/history/${userId}/${sessionId}`,
-    );
+    const response = await authGet(`${API_BASE}/trades/history/${sessionId}`);
     const data = await response.json();
     return data.data || [];
   } catch (error) {
@@ -155,11 +221,9 @@ export async function getTradeHistory(userId, sessionId) {
 /**
  * Get portfolio metrics
  */
-export async function getPortfolioMetrics(userId, sessionId) {
+export async function getPortfolioMetrics(sessionId) {
   try {
-    const response = await fetch(
-      `${API_BASE}/trades/metrics/${userId}/${sessionId}`,
-    );
+    const response = await authGet(`${API_BASE}/trades/metrics/${sessionId}`);
     const data = await response.json();
     return data.data || {};
   } catch (error) {
@@ -171,11 +235,9 @@ export async function getPortfolioMetrics(userId, sessionId) {
 /**
  * Get accuracy statistics
  */
-export async function getAccuracyStats(userId, sessionId) {
+export async function getAccuracyStats(sessionId) {
   try {
-    const response = await fetch(
-      `${API_BASE}/trades/accuracy/${userId}/${sessionId}`,
-    );
+    const response = await authGet(`${API_BASE}/trades/accuracy/${sessionId}`);
     const data = await response.json();
     return data.data || {};
   } catch (error) {
@@ -188,19 +250,10 @@ export async function getAccuracyStats(userId, sessionId) {
 // LEARNING & ADAPTATION API
 // ═════════════════════════════════════════════════════════════════
 
-/**
- * Initialize learning parameters
- */
 export async function initializeLearning(userId, sessionId) {
   try {
-    const response = await fetch(`${API_BASE}/learning/initialize/${userId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId }),
-    });
-
+    const response = await authPost(`${API_BASE}/learning/initialize/${userId}`, { sessionId });
     const data = await response.json();
-    console.log("✓ Learning initialized");
     return data.data;
   } catch (error) {
     console.error("Error initializing learning:", error);
@@ -208,19 +261,13 @@ export async function initializeLearning(userId, sessionId) {
   }
 }
 
-/**
- * Run adaptation cycle
- */
 export async function runAdaptation(userId, sessionId, lookbackWindow = 20) {
   try {
-    const response = await fetch(`${API_BASE}/learning/adapt/${userId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId, lookbackWindow }),
+    const response = await authPost(`${API_BASE}/learning/adapt/${userId}`, {
+      sessionId,
+      lookbackWindow,
     });
-
     const data = await response.json();
-    console.log("✓ Adaptation cycle complete");
     return data.data;
   } catch (error) {
     console.error("Error running adaptation:", error);
@@ -228,12 +275,9 @@ export async function runAdaptation(userId, sessionId, lookbackWindow = 20) {
   }
 }
 
-/**
- * Get learned parameters
- */
 export async function getLearnedParameters(userId) {
   try {
-    const response = await fetch(`${API_BASE}/learning/parameters/${userId}`);
+    const response = await authGet(`${API_BASE}/learning/parameters/${userId}`);
     const data = await response.json();
     return data.data;
   } catch (error) {
@@ -242,201 +286,23 @@ export async function getLearnedParameters(userId) {
   }
 }
 
-/**
- * Get learning progress
- */
-export async function getLearningProgress(userId) {
-  try {
-    const response = await fetch(`${API_BASE}/learning/progress/${userId}`);
-    const data = await response.json();
-    return data.data;
-  } catch (error) {
-    console.error("Error fetching progress:", error);
-    return null;
-  }
-}
-
-// ═════════════════════════════════════════════════════════════════
-// MARKET CONTEXT API
-// ═════════════════════════════════════════════════════════════════
-
-/**
- * Get market context
- */
-export async function getMarketContext() {
-  try {
-    const response = await fetch(`${API_BASE}/context/market`);
-    const data = await response.json();
-    return data.data;
-  } catch (error) {
-    console.error("Error fetching market context:", error);
-    return null;
-  }
-}
-
-/**
- * Get volatility multiplier
- */
-export async function getVolatilityMultiplier(vixLevel) {
-  try {
-    const response = await fetch(
-      `${API_BASE}/context/volatility-multiplier/${vixLevel}`,
-    );
-    const data = await response.json();
-    return data.multiplier;
-  } catch (error) {
-    console.error("Error calculating multiplier:", error);
-    return 1.0;
-  }
-}
-
-/**
- * Interpret market context
- */
-export async function interpretContext(context) {
-  try {
-    const response = await fetch(`${API_BASE}/context/interpret`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ context }),
-    });
-
-    const data = await response.json();
-    return data.interpretation || [];
-  } catch (error) {
-    console.error("Error interpreting context:", error);
-    return [];
-  }
-}
-
-// ═════════════════════════════════════════════════════════════════
-// REPORT GENERATION API
-// ═════════════════════════════════════════════════════════════════
-
-/**
- * Generate trade report
- */
-export async function generateTradeReport(userId, sessionId, decisionLogId) {
-  try {
-    const response = await fetch(`${API_BASE}/reports/trade`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId, sessionId, decisionLogId }),
-    });
-
-    const data = await response.json();
-    console.log("✓ Report generated:", data.reportId);
-    return data.data;
-  } catch (error) {
-    console.error("Error generating report:", error);
-    return null;
-  }
-}
-
-/**
- * Generate session report
- */
-export async function generateSessionReport(userId, sessionId) {
-  try {
-    const response = await fetch(`${API_BASE}/reports/session`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId, sessionId }),
-    });
-
-    const data = await response.json();
-    console.log("✓ Session report generated:", data.reportId);
-    return data.data;
-  } catch (error) {
-    console.error("Error generating session report:", error);
-    return null;
-  }
-}
-
-/**
- * Get report by ID
- */
-export async function getReport(reportId) {
-  try {
-    const response = await fetch(`${API_BASE}/reports/${reportId}`);
-    const data = await response.json();
-    return data.data;
-  } catch (error) {
-    console.error("Error fetching report:", error);
-    return null;
-  }
-}
-
-/**
- * Download report as HTML
- */
-export function downloadReportHTML(
-  reportData,
-  filename = "arbitrix-report.html",
-) {
-  if (!reportData.content?.html) return;
-
-  const element = document.createElement("a");
-  element.setAttribute(
-    "href",
-    "data:text/html;charset=utf-8," +
-      encodeURIComponent(reportData.content.html),
-  );
-  element.setAttribute("download", filename);
-  element.style.display = "none";
-  document.body.appendChild(element);
-  element.click();
-  document.body.removeChild(element);
-}
-
-/**
- * Download report as JSON
- */
-export function downloadReportJSON(
-  reportData,
-  filename = "arbitrix-report.json",
-) {
-  if (!reportData.content?.json) return;
-
-  const jsonStr = JSON.stringify(reportData.content.json, null, 2);
-  const element = document.createElement("a");
-  element.setAttribute(
-    "href",
-    "data:application/json;charset=utf-8," + encodeURIComponent(jsonStr),
-  );
-  element.setAttribute("download", filename);
-  element.style.display = "none";
-  document.body.appendChild(element);
-  element.click();
-  document.body.removeChild(element);
-}
-
 // ═════════════════════════════════════════════════════════════════
 // HELPER FUNCTIONS
 // ═════════════════════════════════════════════════════════════════
 
-/**
- * Determine trading action based on mode and user preference
- */
 export function determineTradeAction(mode, requiresConfirmation = false) {
   if (mode === "FULL_AI") return "AUTO";
   if (mode === "SEMI_AI" && requiresConfirmation) return "SEMI";
   return "MANUAL";
 }
 
-/**
- * Format accuracy percentage
- */
 export function formatAccuracy(value) {
   if (!value && value !== 0) return "—";
   return `${value.toFixed(1)}%`;
 }
 
-/**
- * Get signal color
- */
 export function getSignalColor(signal) {
-  if (signal === "BUY") return "#00e676"; // Green
-  if (signal === "SELL") return "#ff4040"; // Red
-  return "#ffb300"; // Amber for HOLD
+  if (signal === "BUY") return "#00e676";
+  if (signal === "SELL") return "#ff4040";
+  return "#ffb300";
 }

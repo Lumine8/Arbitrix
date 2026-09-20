@@ -4,19 +4,51 @@
 
 import { useState } from 'react'
 import { C } from '../lib/constants'
+import { login, register, logout } from '../lib/trading'
 
 const PRESETS = [1000, 5000, 10000, 50000, 100000]
 
-export function Setup({ onStart }) {
+export function Setup({ onStart, user, setUser }) {
   const [amt, setAmt] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  const [authMode, setAuthMode] = useState(null) // null | 'login' | 'register'
+  const [authEmail, setAuthEmail] = useState('')
+  const [authPass, setAuthPass] = useState('')
+  const [authUser, setAuthUser] = useState('')
+  const [authErr, setAuthErr] = useState('')
+  const [authBusy, setAuthBusy] = useState(false)
 
   function go() {
     const v = parseFloat(amt)
     if (!v || v < 1000) { setErr('Minimum ₹1,000'); return }
     setBusy(true)
     onStart(v)
+  }
+
+  async function handleAuth(e) {
+    e.preventDefault()
+    setAuthErr('')
+    setAuthBusy(true)
+    try {
+      if (authMode === 'login') {
+        const data = await login(authEmail, authPass)
+        setUser(data.user)
+      } else {
+        const data = await register(authUser, authEmail, authPass, parseFloat(amt) || 0)
+        setUser(data.user)
+      }
+      setAuthMode(null)
+    } catch (e) {
+      setAuthErr(e.message)
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  function handleLogout() {
+    logout()
+    setUser(null)
   }
 
   return (
@@ -89,6 +121,61 @@ export function Setup({ onStart }) {
               {f}
             </span>
           ))}
+        </div>
+
+        {/* Auth section */}
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, padding: '16px 20px', marginBottom: 16 }}>
+          {user ? (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: 10, color: C.muted }}>
+                Signed in as <span style={{ color: C.green }}>{user.email || user.username}</span>
+              </div>
+              <button onClick={handleLogout} style={{
+                background: 'none', border: `1px solid ${C.dim}`, color: C.muted,
+                fontFamily: C.mono, fontSize: 9, padding: '4px 10px', cursor: 'pointer',
+              }}>Sign out</button>
+            </div>
+          ) : authMode ? (
+            <form onSubmit={handleAuth}>
+              <div style={{ fontSize: 8, color: C.muted, letterSpacing: 3, marginBottom: 10 }}>
+                {authMode === 'login' ? 'SIGN IN' : 'CREATE ACCOUNT'}
+              </div>
+              {authMode === 'register' && (
+                <input type="text" placeholder="Username" value={authUser}
+                  onChange={e => setAuthUser(e.target.value)} required minLength={3}
+                  style={{ width: '100%', padding: '10px 12px', background: C.bg, border: `1px solid ${C.border}`, color: C.head, fontFamily: C.mono, fontSize: 11, outline: 'none', boxSizing: 'border-box', marginBottom: 8 }} />
+              )}
+              <input type="email" placeholder="Email" value={authEmail}
+                onChange={e => setAuthEmail(e.target.value)} required
+                style={{ width: '100%', padding: '10px 12px', background: C.bg, border: `1px solid ${C.border}`, color: C.head, fontFamily: C.mono, fontSize: 11, outline: 'none', boxSizing: 'border-box', marginBottom: 8 }} />
+              <input type="password" placeholder="Password" value={authPass}
+                onChange={e => setAuthPass(e.target.value)} required minLength={6}
+                style={{ width: '100%', padding: '10px 12px', background: C.bg, border: `1px solid ${C.border}`, color: C.head, fontFamily: C.mono, fontSize: 11, outline: 'none', boxSizing: 'border-box', marginBottom: 8 }} />
+              {authErr && <div style={{ color: C.red, fontSize: 9, marginBottom: 6 }}>{authErr}</div>}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="submit" disabled={authBusy} style={{
+                  flex: 1, padding: '8px 0', background: authBusy ? C.dim : C.green, border: 'none', color: C.bg,
+                  fontFamily: C.mono, fontSize: 10, fontWeight: 700, cursor: authBusy ? 'not-allowed' : 'pointer',
+                }}>{authBusy ? '...' : authMode === 'login' ? 'Sign In' : 'Create Account'}</button>
+                <button type="button" onClick={() => { setAuthMode(null); setAuthErr('') }} style={{
+                  padding: '8px 12px', background: 'none', border: `1px solid ${C.dim}`, color: C.muted,
+                  fontFamily: C.mono, fontSize: 10, cursor: 'pointer',
+                }}>Cancel</button>
+              </div>
+            </form>
+          ) : (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setAuthMode('login')} style={{
+                flex: 1, padding: '8px 0', background: 'none', border: `1px solid ${C.border}`, color: C.muted,
+                fontFamily: C.mono, fontSize: 9, cursor: 'pointer',
+              }}>Sign In</button>
+              <button onClick={() => setAuthMode('register')} style={{
+                flex: 1, padding: '8px 0', background: 'none', border: `1px solid ${C.cyan}40`, color: C.cyan,
+                fontFamily: C.mono, fontSize: 9, cursor: 'pointer',
+              }}>Create Account</button>
+              <span style={{ fontSize: 9, color: C.dim, alignSelf: 'center' }}>or skip →</span>
+            </div>
+          )}
         </div>
 
         {/* Capital input */}

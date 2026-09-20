@@ -3,20 +3,23 @@
    Auto-trading engine, state management, wiring
 ═══════════════════════════════════════════ */
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { C, STOCKS, stockInfo, uid, fc, shortSym, INTERVALS, TRADING_PARAMS } from './lib/constants'
 import { analyzeStock } from './lib/analyze'
 import { fetchStock } from './lib/fetch'
+import { getMe, executeTradeOnServer } from './lib/trading'
 import { Setup } from './components/Setup'
 import { WatchlistPanel } from './components/WatchlistPanel'
-import { TradingPanel } from './components/TradingPanel'
-import { HoldingsPanel } from './components/HoldingsPanel'
-import { ConfirmModal } from './components/ConfirmModal'
-import { SettingsPanel } from './components/SettingsPanel'
 import { Toasts } from './components/UI'
+
+const TradingPanel  = lazy(() => import('./components/TradingPanel').then(m => ({ default: m.TradingPanel })))
+const HoldingsPanel = lazy(() => import('./components/HoldingsPanel').then(m => ({ default: m.HoldingsPanel })))
+const ConfirmModal  = lazy(() => import('./components/ConfirmModal').then(m => ({ default: m.ConfirmModal })))
+const SettingsPanel = lazy(() => import('./components/SettingsPanel').then(m => ({ default: m.SettingsPanel })))
 
 export default function App() {
   const [screen,       setScreen]       = useState('setup')
+  const [user,         setUser]         = useState(null)
   const [capital,      setCapital]      = useState(0)
   const [cash,         setCash]         = useState(0)
   const [holdings,     setHoldings]     = useState({})
@@ -42,6 +45,8 @@ export default function App() {
 
   const queue      = useRef([])
   const processing = useRef(false)
+  const refreshing = useRef(false)
+  const sessionIdR = useRef(`session-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`)
   const settingsR  = useRef(settings)
   const cashR      = useRef(cash)
   const holdingsR  = useRef(holdings)
@@ -54,6 +59,11 @@ export default function App() {
   useEffect(() => { holdingsR.current = holdings }, [holdings])
   useEffect(() => { analysesR.current = analyses }, [analyses])
   useEffect(() => { stockMapR.current = stockMap }, [stockMap])
+
+  /* ── Check for existing auth on mount ── */
+  useEffect(() => {
+    getMe().then(u => { if (u) setUser(u) })
+  }, [])
 
   const autoCount = trades.filter(t => t.isAuto).length
 
@@ -91,8 +101,17 @@ export default function App() {
     notify('BUY', `${qty}×${shortSym(symbol)} @ ${fc(price)}`,
       `Signal: ${analysis ? analysis.signal : 'BUY'} · Conf: ${analysis ? analysis.confidence : 0}%`)
 
+    // Fire-and-forget backend trade logging
+    if (user) {
+      executeTradeOnServer(sessionIdR.current, {
+        type: 'BUY', stock: symbol, qty, price,
+        decision_confidence: analysis?.confidence || 0,
+        execution_mode: isAuto ? 'AUTO' : 'MANUAL',
+      }).catch(() => {})
+    }
+
     return true
-  }, [notify])
+  }, [notify, user])
 
   const executeSell = useCallback((symbol, qty, price, analysis, isAuto) => {
     const h = holdingsR.current[symbol]
@@ -116,8 +135,17 @@ export default function App() {
     }, ...t])
     notify('SELL', `${qty}×${shortSym(symbol)} @ ${fc(price)}`, `P&L: ${fc(pnl)}`)
 
+    // Fire-and-forget backend trade logging
+    if (user) {
+      executeTradeOnServer(sessionIdR.current, {
+        type: 'SELL', stock: symbol, qty, price,
+        decision_confidence: analysis?.confidence || 0,
+        execution_mode: isAuto ? 'AUTO' : 'MANUAL',
+      }).catch(() => {})
+    }
+
     return true
-  }, [notify])
+  }, [notify, user])
 
   /* ── Execute trade ── */
   const executeTrade = useCallback((type, symbol, tradeQty, price, analysis, isAuto) => {
@@ -238,13 +266,13 @@ export default function App() {
     const picks = pickStocks(amount)
     setWatchlist(picks)
 
-    for (const symbol of picks) {
+    await Promise.all(picks.map(async (symbol) => {
       setLoadMsg(`Loading ${shortSym(symbol)}…`)
       const data = await fetchStock(symbol)
       const analysis = analyzeStock(data.history)
       setStockMap(m => ({ ...m, [symbol]: data }))
       if (analysis) setAnalyses(a => ({ ...a, [symbol]: analysis }))
-    }
+    }))
 
     setLoadMsg('')
     setSelected(picks[0])
@@ -268,11 +296,17 @@ export default function App() {
   useEffect(() => {
     if (screen !== 'trading' || watchlist.length === 0) return
     const timer = setInterval(async () => {
-      for (const symbol of watchlist) {
-        const data = await fetchStock(symbol)
-        const analysis = analyzeStock(data.history)
-        setStockMap(m => ({ ...m, [symbol]: data }))
-        if (analysis) setAnalyses(a => ({ ...a, [symbol]: analysis }))
+      if (refreshing.current) return
+      refreshing.current = true
+      try {
+        await Promise.all(watchlist.map(async (symbol) => {
+          const data = await fetchStock(symbol)
+          const analysis = analyzeStock(data.history)
+          setStockMap(m => ({ ...m, [symbol]: data }))
+          if (analysis) setAnalyses(a => ({ ...a, [symbol]: analysis }))
+        }))
+      } finally {
+        refreshing.current = false
       }
     }, INTERVALS.PRICE_REFRESH)
     return () => clearInterval(timer)
@@ -310,7 +344,7 @@ export default function App() {
   // ══════════════════════════════════════════
 
   if (screen === 'setup') {
-    return <Setup onStart={handleStart} />
+    return <Setup onStart={handleStart} user={user} setUser={setUser} />
   }
 
   return (
@@ -325,6 +359,7 @@ export default function App() {
       `}</style>
 
       {/* Main grid: 3 columns */}
+      <Suspense fallback={<div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.dim, fontFamily: C.mono, fontSize: 11 }}>Loading…</div>}>
       <div style={{
         flex: 1,
         display: 'grid',
@@ -369,23 +404,26 @@ export default function App() {
           autoCount={autoCount}
         />
       </div>
+      </Suspense>
 
       {/* Modals */}
-      {pending && (
-        <ConfirmModal
-          trade={pending}
-          onConfirm={handleConfirm}
-          onReject={handleReject}
-          onAutoAll={handleAutoAll}
-        />
-      )}
-      {showSettings && (
-        <SettingsPanel
-          settings={settings}
-          onChange={setSettings}
-          onClose={() => setShowSettings(false)}
-        />
-      )}
+      <Suspense fallback={null}>
+        {pending && (
+          <ConfirmModal
+            trade={pending}
+            onConfirm={handleConfirm}
+            onReject={handleReject}
+            onAutoAll={handleAutoAll}
+          />
+        )}
+        {showSettings && (
+          <SettingsPanel
+            settings={settings}
+            onChange={setSettings}
+            onClose={() => setShowSettings(false)}
+          />
+        )}
+      </Suspense>
 
       {/* Toast notifications */}
       <Toasts notifs={notifs} />

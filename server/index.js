@@ -76,13 +76,38 @@ function requireAuth(req, res, next) {
 }
 
 // ═════════════════════════════════════════════════════════════════
+// INPUT VALIDATION HELPERS
+// ═════════════════════════════════════════════════════════════════
+function validateEmail(email) {
+  return typeof email === "string" && email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+function validateString(val, minLen, maxLen) {
+  return typeof val === "string" && val.length >= minLen && val.length <= maxLen;
+}
+function validatePositiveNumber(val) {
+  return typeof val === "number" && isFinite(val) && val > 0;
+}
+function validateObjectId(val) {
+  return typeof val === "string" && /^[0-9a-fA-F]{24}$/.test(val);
+}
+
+// ═════════════════════════════════════════════════════════════════
 // AUTH ROUTES
 // ═════════════════════════════════════════════════════════════════
 app.post("/api/auth/register", async (req, res) => {
   try {
     const { username, email, password, capital } = req.body;
-    if (!username || !email || !password) {
-      return res.status(400).json({ error: "username, email, and password are required" });
+    if (!validateString(username, 3, 30)) {
+      return res.status(400).json({ error: "username must be 3-30 characters" });
+    }
+    if (!validateEmail(email)) {
+      return res.status(400).json({ error: "Invalid email" });
+    }
+    if (!validateString(password, 6, 128)) {
+      return res.status(400).json({ error: "password must be 6-128 characters" });
+    }
+    if (capital !== undefined && (!validatePositiveNumber(capital) || capital > 1e9)) {
+      return res.status(400).json({ error: "capital must be a positive number" });
     }
 
     const existing = await User.findOne({ $or: [{ email }, { username }] });
@@ -108,8 +133,11 @@ app.post("/api/auth/register", async (req, res) => {
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: "email and password are required" });
+    if (!validateEmail(email)) {
+      return res.status(400).json({ error: "Invalid email" });
+    }
+    if (!validateString(password, 1, 128)) {
+      return res.status(400).json({ error: "Invalid password" });
     }
 
     const user = await User.findOne({ email });
@@ -242,8 +270,20 @@ app.get("/api/trades/accuracy/:sessionId", requireAuth, async (req, res) => {
 app.post("/api/trades/execute", requireAuth, async (req, res) => {
   try {
     const { sessionId, ...tradeData } = req.body;
-    if (!sessionId) {
-      return res.status(400).json({ error: "Missing sessionId" });
+    if (!validateString(sessionId, 1, 100)) {
+      return res.status(400).json({ error: "Missing or invalid sessionId" });
+    }
+    if (!["BUY", "SELL"].includes(tradeData.type)) {
+      return res.status(400).json({ error: "type must be BUY or SELL" });
+    }
+    if (!validateString(tradeData.stock, 1, 20)) {
+      return res.status(400).json({ error: "Invalid stock symbol" });
+    }
+    if (!validatePositiveNumber(tradeData.qty) || tradeData.qty > 100000) {
+      return res.status(400).json({ error: "qty must be a positive number" });
+    }
+    if (!validatePositiveNumber(tradeData.price) || tradeData.price > 1e9) {
+      return res.status(400).json({ error: "Invalid price" });
     }
 
     const trade = await PaperTradingEngine.executeTrade({
@@ -263,8 +303,9 @@ app.post("/api/trades/close/:tradeId", requireAuth, async (req, res) => {
   try {
     const { tradeId } = req.params;
     const { exit_price } = req.body;
-    if (!exit_price || isNaN(parseFloat(exit_price))) {
-      return res.status(400).json({ error: "Valid exit_price is required" });
+    const parsedPrice = parseFloat(exit_price);
+    if (!validatePositiveNumber(parsedPrice) || parsedPrice > 1e9) {
+      return res.status(400).json({ error: "Valid exit_price (positive number) is required" });
     }
 
     const trade = await PaperTradingEngine.closeTrade(

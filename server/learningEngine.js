@@ -1,5 +1,8 @@
 const { LearnedParameters, TradeEvaluation, DecisionLog } = require("./models");
 
+const MIN_EVALUATIONS = 10;
+const MAX_WEIGHT_CHANGE_PER_STEP = 0.05;
+
 // ═════════════════════════════════════════════════════════════════
 // SELF-LEARNING ADAPTATION ENGINE
 // Learns from past mistakes and adapts parameters
@@ -17,33 +20,13 @@ class LearningEngine {
         params = new LearnedParameters({
           userId,
           sessionId,
-          // Default indicator weights (sum = 1.0)
           indicator_weights: {
-            EMA_TREND_WEIGHT: {
-              value: 0.28,
-              iterations: 0,
-              performance: 0.5,
-            },
-            RSI_WEIGHT: {
-              value: 0.2,
-              iterations: 0,
-              performance: 0.5,
-            },
-            MACD_WEIGHT: {
-              value: 0.24,
-              iterations: 0,
-              performance: 0.5,
-            },
-            BOLLINGER_WEIGHT: {
-              value: 0.16,
-              iterations: 0,
-              performance: 0.5,
-            },
-            VOLUME_WEIGHT: {
-              value: 0.12,
-              iterations: 0,
-              performance: 0.5,
-            },
+            EMA_TREND_WEIGHT: { value: 0.24, iterations: 0, performance: 0.5 },
+            RSI_WEIGHT: { value: 0.17, iterations: 0, performance: 0.5 },
+            MACD_WEIGHT: { value: 0.20, iterations: 0, performance: 0.5 },
+            BOLLINGER_WEIGHT: { value: 0.14, iterations: 0, performance: 0.5 },
+            VOLUME_WEIGHT: { value: 0.10, iterations: 0, performance: 0.5 },
+            STOCH_WEIGHT: { value: 0.15, iterations: 0, performance: 0.5 },
           },
           signal_thresholds: {
             BUY_THRESHOLD: 0.1,
@@ -112,6 +95,11 @@ class LearningEngine {
         return null;
       }
 
+      if (evals.length < MIN_EVALUATIONS) {
+        console.log(`Only ${evals.length}/${MIN_EVALUATIONS} evaluations — skipping adaptation`);
+        return null;
+      }
+
       // Analyze performance
       const correctTrades = evals.filter((e) => e.direction_correct);
       const accuracy = correctTrades.length / evals.length;
@@ -140,7 +128,7 @@ class LearningEngine {
 
       // Adapt indicator weights based on signal analysis
       const signal_performance = {};
-      const signals = ["EMA_TREND", "RSI", "MACD", "BOLLINGER", "VOLUME"];
+      const signals = ["EMA_TREND", "RSI", "MACD", "BOLLINGER", "VOLUME", "STOCH"];
 
       for (const signal of signals) {
         const correct = evals.filter(
@@ -164,18 +152,28 @@ class LearningEngine {
         "MACD_WEIGHT",
         "BOLLINGER_WEIGHT",
         "VOLUME_WEIGHT",
+        "STOCH_WEIGHT",
       ];
 
       if (total_performance > 0) {
         weight_keys.forEach((key, idx) => {
           const signal = signals[idx];
-          const new_value =
-            (signal_performance[signal] / total_performance) * 1.0;
-          params.indicator_weights[key].value = +new_value.toFixed(4);
+          const raw_new = (signal_performance[signal] / total_performance) * 1.0;
+          const current = params.indicator_weights[key].value;
+          // Clamp change to MAX_WEIGHT_CHANGE_PER_STEP
+          const clamped = current + Math.max(-MAX_WEIGHT_CHANGE_PER_STEP, Math.min(MAX_WEIGHT_CHANGE_PER_STEP, raw_new - current));
+          params.indicator_weights[key].value = +Math.max(0.03, Math.min(0.50, clamped)).toFixed(4);
           params.indicator_weights[key].iterations += 1;
-          params.indicator_weights[key].performance =
-            +signal_performance[signal].toFixed(4);
+          params.indicator_weights[key].performance = +signal_performance[signal].toFixed(4);
         });
+
+        // Normalize weights to sum to 1.0
+        const totalWeight = weight_keys.reduce((sum, key) => sum + params.indicator_weights[key].value, 0);
+        if (totalWeight > 0) {
+          weight_keys.forEach(key => {
+            params.indicator_weights[key].value = +(params.indicator_weights[key].value / totalWeight).toFixed(4);
+          });
+        }
       }
 
       // Adapt confidence scaling

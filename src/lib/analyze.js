@@ -10,7 +10,8 @@ import { ANALYSIS_PARAMS } from './constants'
  * Full analysis of a stock given its price history.
  * Returns signal, confidence, predictions, and component scores.
  */
-export function analyzeStock(history) {
+export function analyzeStock(history, overrides) {
+  const P = { ...ANALYSIS_PARAMS, ...overrides }
   if (!history || !Array.isArray(history)) {
     console.warn('Invalid history provided to analyzeStock')
     return null
@@ -33,15 +34,15 @@ export function analyzeStock(history) {
   const volumes = validHistory.map(h => h.volume || 0)
 
   const n = closes.length
-  const e9  = ema(closes, ANALYSIS_PARAMS.EMA_FAST)
-  const e21 = ema(closes, ANALYSIS_PARAMS.EMA_MEDIUM)
-  const e50 = ema(closes, ANALYSIS_PARAMS.EMA_SLOW)
-  const rsiA  = rsi(closes, ANALYSIS_PARAMS.RSI_PERIOD)
+  const e9  = ema(closes, P.EMA_FAST)
+  const e21 = ema(closes, P.EMA_MEDIUM)
+  const e50 = ema(closes, P.EMA_SLOW)
+  const rsiA  = rsi(closes, P.RSI_PERIOD)
   const macdD = macd(closes)
   const bbA   = bollinger(closes)
   const atrA  = atr(highs, lows, closes)
   const vol   = volatility(closes)
-  const stoch = stochastic(highs, lows, closes, ANALYSIS_PARAMS.STOCH_K_PERIOD, ANALYSIS_PARAMS.STOCH_D_PERIOD)
+  const stoch = stochastic(highs, lows, closes, P.STOCH_K_PERIOD, P.STOCH_D_PERIOD)
 
   const last  = closes[n - 1]
   const rsiV  = lastValid(rsiA) || 50
@@ -67,7 +68,7 @@ export function analyzeStock(history) {
 
   // Signal components (weighted)
   const s1 = (ev9 > ev21 ? 0.5 : -0.5) + (ev21 > ev50 ? 0.5 : -0.5)
-  const s2 = rsiV < 30 ? 1 : rsiV > ANALYSIS_PARAMS.RSI_OVERBOUGHT ? -1 : (rsiV - 50) / 50 * 0.5
+  const s2 = rsiV < 30 ? 1 : rsiV > P.RSI_OVERBOUGHT ? -1 : (rsiV - 50) / 50 * 0.5
   const s3 = mH > 0 && mH > mH2 ? 0.8 : mH > 0 ? 0.3 : mH < 0 && mH < mH2 ? -0.8 : -0.3
   let s4 = 0
   if (bb && bb.upper && bb.lower) {
@@ -80,8 +81,8 @@ export function analyzeStock(history) {
 
   // Stochastic score: oversold/overbought + %K/%D crossover
   let s6 = 0
-  if (stochK < ANALYSIS_PARAMS.STOCH_OVERSOLD) s6 = 0.6
-  else if (stochK > ANALYSIS_PARAMS.STOCH_OVERBOUGHT) s6 = -0.6
+  if (stochK < P.STOCH_OVERSOLD) s6 = 0.6
+  else if (stochK > P.STOCH_OVERBOUGHT) s6 = -0.6
   else s6 = (stochK - 50) / 50 * 0.3
   // %K crossing above %D = bullish momentum
   if (prevStochK <= prevStochD && stochK > stochD) s6 += 0.4
@@ -89,8 +90,8 @@ export function analyzeStock(history) {
   if (prevStochK >= prevStochD && stochK < stochD) s6 -= 0.4
   s6 = Math.max(-1, Math.min(1, s6))
 
-  const composite = +(s1 * ANALYSIS_PARAMS.EMA_TREND_WEIGHT + s2 * ANALYSIS_PARAMS.RSI_WEIGHT + s3 * ANALYSIS_PARAMS.MACD_WEIGHT + s4 * ANALYSIS_PARAMS.BOLLINGER_WEIGHT + s5 * ANALYSIS_PARAMS.VOLUME_WEIGHT + s6 * ANALYSIS_PARAMS.STOCH_WEIGHT).toFixed(3)
-  const confidence = +Math.min(Math.abs(composite) * 100, ANALYSIS_PARAMS.MAX_CONFIDENCE_PERCENTAGE).toFixed(1)
+  const composite = +(s1 * P.EMA_TREND_WEIGHT + s2 * P.RSI_WEIGHT + s3 * P.MACD_WEIGHT + s4 * P.BOLLINGER_WEIGHT + s5 * P.VOLUME_WEIGHT + s6 * P.STOCH_WEIGHT).toFixed(3)
+  const confidence = +Math.min(Math.abs(composite) * 100, P.MAX_CONFIDENCE_PERCENTAGE).toFixed(1)
 
   const signal = composite > 0.10 ? 'BUY'
     : composite < -0.10 ? 'SELL'
