@@ -27,22 +27,23 @@ export function WatchlistPanel({
         flexShrink: 0,
       }}>
         {/* Logo */}
-        <svg width="22" height="22" viewBox="0 0 72 72" style={{ flexShrink: 0 }}>
+        <svg width="22" height="22" viewBox="0 0 120 120" style={{ flexShrink: 0 }}>
           <defs>
             <linearGradient id="lgt" x1="0" y1="0" x2="1" y2="1">
               <stop offset="0%" stopColor="#00e676" />
               <stop offset="100%" stopColor="#ffd700" />
             </linearGradient>
           </defs>
-          <rect width="72" height="72" rx="14" fill="#0a0e16" />
-          <rect x="10" y="44" width="8"  height="18" rx="1" fill="url(#lgt)" opacity="0.5" />
-          <rect x="21" y="34" width="8"  height="28" rx="1" fill="url(#lgt)" opacity="0.7" />
-          <rect x="32" y="24" width="8"  height="38" rx="1" fill="url(#lgt)" opacity="0.9" />
-          <rect x="43" y="16" width="8"  height="46" rx="1" fill="url(#lgt)" />
-          <rect x="54" y="22" width="8"  height="40" rx="1" fill="url(#lgt)" opacity="0.7" />
-          <polyline points="14,42 25,32 36,22 47,14 58,20"
-            fill="none" stroke="#00e676" strokeWidth="2.5" strokeLinecap="round" />
-          <circle cx="47" cy="14" r="3" fill="#ffd700" />
+          <rect width="120" height="120" rx="24" fill="#0a0e16" />
+          <rect x="24" y="62" width="10" height="28" rx="2" fill="url(#lgt)" opacity="0.4" />
+          <rect x="40" y="48" width="10" height="42" rx="2" fill="url(#lgt)" opacity="0.6" />
+          <rect x="56" y="36" width="10" height="54" rx="2" fill="url(#lgt)" opacity="0.8" />
+          <rect x="72" y="26" width="10" height="64" rx="2" fill="url(#lgt)" />
+          <rect x="88" y="40" width="10" height="50" rx="2" fill="url(#lgt)" opacity="0.7" />
+          <polyline points="29,60 45,46 61,34 77,24 93,38"
+            fill="none" stroke="url(#lgt)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          <polygon points="93,38 87,34 89,42" fill="#ffd700" />
+          <circle cx="77" cy="24" r="3.5" fill="#ffd700" />
         </svg>
 
         <span style={{ fontFamily: C.serif, fontSize: 15, fontWeight: 800, color: C.head, letterSpacing: 1 }}>

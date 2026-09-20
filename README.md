@@ -1,6 +1,6 @@
 # ARBITRIX — Technical Analysis Auto-Trading System
 
-![logo of the project](./public/logo.png)
+![logo of the project](./public/logo.svg)
 
 ### Algorithmic Paper Trading for NSE Stocks | EMA · RSI · MACD · Bollinger · Stochastic · Volume
 
@@ -170,7 +170,7 @@ arbitrix/
 ├── DEPLOY.bat / DEPLOY.sh
 │
 ├── public/
-│   └── logo.png
+│   └── logo.svg
 │
 ├── server/
 │   ├── index.js              ← Express server + API routes + auth + helmet
@@ -417,5 +417,5 @@ This system uses algorithmic signals that are not guaranteed to be profitable. N
 
 ---
 
-**Version:** 4.0.0
+**Version:** 4.1.0
 **Last Updated:** September 2026

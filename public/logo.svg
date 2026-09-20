@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#00e676"/>
+      <stop offset="100%" stop-color="#ffd700"/>
+    </linearGradient>
+    <linearGradient id="g2" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#00e676" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#00e676" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="120" height="120" rx="24" fill="#0a0e16"/>
+  <!-- Grid lines -->
+  <line x1="20" y1="90" x2="100" y2="90" stroke="#162534" stroke-width="0.5"/>
+  <line x1="20" y1="70" x2="100" y2="70" stroke="#162534" stroke-width="0.5"/>
+  <line x1="20" y1="50" x2="100" y2="50" stroke="#162534" stroke-width="0.5"/>
+  <line x1="20" y1="30" x2="100" y2="30" stroke="#162534" stroke-width="0.5"/>
+  <!-- Chart bars -->
+  <rect x="24" y="62" width="10" height="28" rx="2" fill="url(#g1)" opacity="0.4"/>
+  <rect x="40" y="48" width="10" height="42" rx="2" fill="url(#g1)" opacity="0.6"/>
+  <rect x="56" y="36" width="10" height="54" rx="2" fill="url(#g1)" opacity="0.8"/>
+  <rect x="72" y="26" width="10" height="64" rx="2" fill="url(#g1)"/>
+  <rect x="88" y="40" width="10" height="50" rx="2" fill="url(#g1)" opacity="0.7"/>
+  <!-- Trend line -->
+  <polyline points="29,60 45,46 61,34 77,24 93,38"
+    fill="none" stroke="url(#g1)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Arrow head -->
+  <polygon points="93,38 87,34 89,42" fill="#ffd700"/>
+  <!-- Glow dot -->
+  <circle cx="77" cy="24" r="3.5" fill="#ffd700"/>
+</svg>
