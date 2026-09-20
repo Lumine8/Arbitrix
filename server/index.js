@@ -2,6 +2,8 @@ const express = require("express");
 const fetch = require("node-fetch");
 const dotenv = require("dotenv");
 const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
+const helmet = require("helmet");
 const mongoose = require("mongoose");
 
 // Import models and trading engines
@@ -40,6 +42,10 @@ mongoose
   });
 
 // Middleware
+app.use(helmet({
+  contentSecurityPolicy: false, // Allow inline styles for React
+  crossOriginEmbedderPolicy: false,
+}));
 app.use(express.json({ limit: "1mb" }));
 
 // CORS

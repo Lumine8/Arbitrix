@@ -81,32 +81,13 @@ const DecisionLogSchema = new mongoose.Schema(
       EMA_9: Number,
       EMA_21: Number,
       EMA_50: Number,
-      BB_position: Number, // 0-1: position between lower and upper
+      BB_position: Number,
       BB_width: Number,
-      volume_ratio: Number, // Recent vol / historical vol
+      volume_ratio: Number,
       ATR: Number,
       volatility: Number,
-    },
-
-    // PIEC Metrics
-    piec: {
-      entropy: Number,
-      entropy_bins: [Number],
-      regime: String, // "high_entropy", "low_entropy", "chaotic"
-      signal_attenuation: Number,
-    },
-
-    // RLFS Metrics
-    rlfs: {
-      drift: Number,
-      score: Number,
-      stability_regime: String, // "STABLE", "DEGRADED", "REJECTED"
-    },
-
-    // S-ADR Metrics
-    sadr: {
-      omega: Number, // Position sizing factor
-      decision_zone: String, // "STABLE", "DEGRADED", "REJECTED"
+      Stoch_K: Number,
+      Stoch_D: Number,
     },
 
     // Decision Components
@@ -121,6 +102,7 @@ const DecisionLogSchema = new mongoose.Schema(
       macd_signal: Number,
       bollinger_signal: Number,
       volume_signal: Number,
+      stoch_signal: Number,
     },
 
     // Reasoning

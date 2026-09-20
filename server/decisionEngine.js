@@ -162,12 +162,33 @@ class TradeEvaluator {
         confidence_vs_result = "LOW_WRONG";
 
       // Determine which signals should have higher/lower weight
-      const should_increase_weight = direction_correct
-        ? ["EMA_TREND", "RSI", "MACD", "BOLLINGER"] // Arbitrarily selected for demo
-        : [];
-      const should_decrease_weight = !direction_correct
-        ? ["EMA_TREND", "RSI", "MACD", "BOLLINGER"]
-        : [];
+      // Based on actual component contributions from signal_components
+      const components = params.signal_components || {};
+      const threshold = 0.15; // Minimum score to count as "contributed"
+
+      const signalMap = {
+        EMA_TREND: components.ema_trend || 0,
+        RSI: components.rsi_signal || 0,
+        MACD: components.macd_signal || 0,
+        BOLLINGER: components.bollinger_signal || 0,
+        VOLUME: components.volume_signal || 0,
+        STOCH: components.stoch_signal || 0,
+      };
+
+      const should_increase_weight = [];
+      const should_decrease_weight = [];
+
+      for (const [signal, score] of Object.entries(signalMap)) {
+        if (Math.abs(score) < threshold) continue;
+        // If trade was profitable and signal agreed with direction, increase
+        if (direction_correct && ((score > 0 && predicted_direction === "UP") || (score < 0 && predicted_direction === "DOWN"))) {
+          should_increase_weight.push(signal);
+        }
+        // If trade was wrong and signal disagreed with actual direction, decrease
+        if (!direction_correct && ((score > 0 && actual_direction === "DOWN") || (score < 0 && actual_direction === "UP"))) {
+          should_decrease_weight.push(signal);
+        }
+      }
 
       const evaluation = new TradeEvaluation({
         userId,

@@ -165,11 +165,11 @@ arbitrix/
 │   └── logo.png
 │
 ├── server/
-│   ├── index.js              ← Express server + API routes
+│   ├── index.js              ← Express server + API routes + auth
 │   ├── package.json
-│   ├── .env
+│   ├── .env                  ← MONGODB_URI, JWT_SECRET, PORT
 │   ├── validate.js           ← Module validation script
-│   ├── models.js             ← MongoDB schemas
+│   ├── models.js             ← MongoDB schemas (User, DecisionLog, PaperTrade, etc.)
 │   ├── decisionEngine.js     ← Decision logging & trade evaluation
 │   ├── learningEngine.js     ← Adaptive weight learning
 │   └── reportEngine.js       ← Market context & report generation
@@ -180,14 +180,14 @@ arbitrix/
     │
     ├── lib/
     │   ├── constants.js      ← Config: stocks, indicators, params
-    │   ├── ta.js             ← Technical analysis (EMA, RSI, MACD, BB, Stochastic)
+    │   ├── ta.js             ← Technical analysis (EMA, RSI, MACD, BB, Stochastic, ATR)
     │   ├── analyze.js        ← Composite signal engine
-    │   ├── fetch.js          ← Yahoo Finance data fetching
-    │   └── trading.js        ← Trading modes & API integration
+    │   ├── fetch.js          ← Yahoo Finance data fetching (with mock fallback)
+    │   └── trading.js        ← Trading modes, auth API, backend integration
     │
     └── components/
         ├── UI.jsx
-        ├── Setup.jsx
+        ├── Setup.jsx         ← Launch screen with auth + capital input
         ├── WatchlistPanel.jsx
         ├── TradingPanel.jsx
         ├── HoldingsPanel.jsx
