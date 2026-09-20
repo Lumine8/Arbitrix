@@ -88,6 +88,7 @@ function parseYahooResponse(raw, symbol) {
   return {
     symbol,
     history,
+    source: 'live',
     price:     meta.regularMarketPrice || history[history.length - 1].close,
     prevClose: meta.chartPreviousClose || meta.previousClose || history[history.length - 2].close,
     name:      meta.shortName || stockInfo(symbol).n,
@@ -119,6 +120,7 @@ function makeMockData(symbol) {
   return {
     symbol,
     history,
+    source: 'mock',
     price:     history[history.length - 1].close,
     prevClose: history[history.length - 2].close,
     name:      info.n,

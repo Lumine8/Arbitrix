@@ -16,14 +16,21 @@ export function analyzeStock(history) {
     return null
   }
 
-  if (history.length < 40) {
+  if (history.length < 60) {
     return null
   }
 
-  const closes  = history.map(h => h.close)
-  const highs   = history.map(h => h.high  || h.close * 1.005)
-  const lows    = history.map(h => h.low   || h.close * 0.995)
-  const volumes = history.map(h => h.volume || 0)
+  const validHistory = history.filter(h =>
+    Number.isFinite(h.close) && Number.isFinite(h.high || h.close) && Number.isFinite(h.low || h.close)
+  )
+  if (validHistory.length < 60) {
+    return null
+  }
+
+  const closes  = validHistory.map(h => h.close)
+  const highs   = validHistory.map(h => h.high  || h.close * 1.005)
+  const lows    = validHistory.map(h => h.low   || h.close * 0.995)
+  const volumes = validHistory.map(h => h.volume || 0)
 
   const n = closes.length
   const e9  = ema(closes, ANALYSIS_PARAMS.EMA_FAST)

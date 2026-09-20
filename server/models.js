@@ -1,4 +1,64 @@
 const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
+
+// ═════════════════════════════════════════════════════════════════
+// USER SCHEMA
+// Persistent user accounts with authentication
+// ═════════════════════════════════════════════════════════════════
+const UserSchema = new mongoose.Schema(
+  {
+    username: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
+      minlength: 3,
+      maxlength: 30,
+    },
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
+      lowercase: true,
+    },
+    password: {
+      type: String,
+      required: true,
+      minlength: 6,
+    },
+    capital: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+  },
+  { timestamps: true, collection: "users" },
+);
+
+UserSchema.index({ email: 1 }, { unique: true });
+UserSchema.index({ username: 1 }, { unique: true });
+
+UserSchema.pre("save", async function (next) {
+  if (!this.isModified("password")) return next();
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
+  next();
+});
+
+UserSchema.methods.comparePassword = async function (candidatePassword) {
+  return bcrypt.compare(candidatePassword, this.password);
+};
+
+UserSchema.methods.toPublic = function () {
+  const obj = this.toObject();
+  delete obj.password;
+  return obj;
+};
 
 // ═════════════════════════════════════════════════════════════════
 // DECISION LOG SCHEMA
@@ -183,6 +243,7 @@ const LearnedParametersSchema = new mongoose.Schema(
         performance: Number,
       },
       VOLUME_WEIGHT: { value: Number, iterations: Number, performance: Number },
+      STOCH_WEIGHT: { value: Number, iterations: Number, performance: Number },
     },
 
     // Signal Threshold Adaptations
@@ -423,6 +484,7 @@ const SystemReportSchema = new mongoose.Schema(
 
 // Create and export models
 const models = {
+  User: mongoose.model("User", UserSchema),
   DecisionLog: mongoose.model("DecisionLog", DecisionLogSchema),
   TradeEvaluation: mongoose.model("TradeEvaluation", TradeEvaluationSchema),
   LearnedParameters: mongoose.model(

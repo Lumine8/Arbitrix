@@ -48,6 +48,13 @@ export default function App() {
   const analysesR  = useRef(analyses)
   const stockMapR  = useRef(stockMap)
 
+  /* ── Sync refs with React state ── */
+  useEffect(() => { settingsR.current = settings }, [settings])
+  useEffect(() => { cashR.current = cash }, [cash])
+  useEffect(() => { holdingsR.current = holdings }, [holdings])
+  useEffect(() => { analysesR.current = analyses }, [analyses])
+  useEffect(() => { stockMapR.current = stockMap }, [stockMap])
+
   const autoCount = trades.filter(t => t.isAuto).length
 
   /* ── Notify toast ── */
@@ -156,14 +163,18 @@ export default function App() {
       if (!stk) continue
       const price = stk.price
       const h = allH[symbol]
+      const isMock = stk.source === 'mock'
 
       // Stop-loss check
-      const slPrice = h.avgPrice * (1 - TRADING_PARAMS.STOP_LOSS_PERCENTAGE)
-      if (s.stopLossAuto && h && price < slPrice) {
-        executeTrade('SELL', symbol, h.qty, price, a, true)
-        notify('SL', `Stop-loss: ${shortSym(symbol)}`,
-          `Price ${fc(price)} hit SL ${fc(slPrice)}`)
-        continue
+      if (s.stopLossAuto && h && h.qty > 0) {
+        const stopLossPct = parseFloat(slPct) / 100 || TRADING_PARAMS.STOP_LOSS_PERCENTAGE
+        const slPrice = h.avgPrice * (1 - stopLossPct)
+        if (price < slPrice) {
+          executeTrade('SELL', symbol, h.qty, price, a, true)
+          notify('SL', `Stop-loss: ${shortSym(symbol)}`,
+            `Price ${fc(price)} hit SL ${fc(slPrice)}`)
+          continue
+        }
       }
 
       // BUY signal
@@ -174,7 +185,9 @@ export default function App() {
         const alreadyQ = queue.current.some(q => q.symbol === symbol && q.type === 'BUY')
         if (alreadyQ) continue
         signals++
-        if (s.confirmBuy) {
+        if (isMock) {
+          notify('INFO', `Signal for ${shortSym(symbol)}: ${a.signal} (${a.confidence}%)`, 'Data is simulated — auto-trade skipped')
+        } else if (s.confirmBuy) {
           queue.current.push({
             type: 'BUY', symbol, name: stk.name,
             qty: shares, price, analysis: a,
@@ -189,7 +202,9 @@ export default function App() {
         const alreadyQ = queue.current.some(q => q.symbol === symbol && q.type === 'SELL')
         if (alreadyQ) continue
         signals++
-        if (s.confirmSell) {
+        if (isMock) {
+          notify('INFO', `Signal for ${shortSym(symbol)}: ${a.signal}`, 'Data is simulated — auto-trade skipped')
+        } else if (s.confirmSell) {
           queue.current.push({
             type: 'SELL', symbol, name: stk.name,
             qty: h.qty, price, analysis: a,

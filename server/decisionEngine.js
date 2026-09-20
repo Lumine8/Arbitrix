@@ -286,23 +286,34 @@ class PaperTradingEngine {
         execution_mode,
       } = params;
 
+      if (!userId || !sessionId || !type || !stock || !qty || !price) {
+        throw new Error("Missing required trade parameters");
+      }
+      if (qty <= 0 || price <= 0) {
+        throw new Error("qty and price must be positive");
+      }
+
       // Simulate slippage (0.1% - 0.3% depending on market conditions)
       const slippage_pct = (Math.random() * 0.2 + 0.1) / 100;
       const slippage_amount = price * qty * slippage_pct;
 
-      // Transaction costs (0.05% fixed)
+      // Transaction costs (0.05% fixed, entry side)
       const transaction_cost = price * qty * 0.0005;
 
-      const entry_total = price * qty;
       const actual_price =
         type === "BUY"
           ? price * (1 + slippage_pct)
           : price * (1 - slippage_pct);
 
+      // entry_total must match the actual fill price
+      const entry_total = actual_price * qty;
+
+      const tradeId = `${userId}-${sessionId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
       const trade = new PaperTrade({
         userId,
         sessionId,
-        tradeId: `${userId}-${sessionId}-${Date.now()}`,
+        tradeId,
         type,
         stock,
         qty,
@@ -333,10 +344,12 @@ class PaperTradingEngine {
   /**
    * Close a trade and calculate P&L
    */
-  static async closeTrade(tradeId, exit_price) {
+  static async closeTrade(tradeId, exit_price, userId) {
     try {
       const trade = await PaperTrade.findOne({ tradeId }).exec();
       if (!trade) throw new Error("Trade not found");
+      if (trade.userId !== userId) throw new Error("Forbidden");
+      if (trade.status === "CLOSED") throw new Error("Trade is already closed");
 
       // Apply slippage on exit
       const slippage_pct = (Math.random() * 0.2 + 0.1) / 100;
@@ -346,8 +359,12 @@ class PaperTradingEngine {
           : exit_price * (1 - slippage_pct);
 
       const exit_total = actual_exit_price * trade.qty;
+
+      // Exit-side transaction cost (0.05%)
+      const exit_cost = exit_total * 0.0005;
+
       const gross_pnl = exit_total - trade.entry_total;
-      const net_pnl = gross_pnl - trade.transaction_cost;
+      const net_pnl = gross_pnl - trade.transaction_cost - exit_cost;
       const pnl_pct = (net_pnl / trade.entry_total) * 100;
 
       trade.exit_price = actual_exit_price;

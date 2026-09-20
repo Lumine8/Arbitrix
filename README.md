@@ -147,7 +147,7 @@ npm start
 npm run dev
 ```
 
-Open http://localhost:5173 in your browser.
+Open http://localhost:3000 in your browser.
 
 ---
 
@@ -338,7 +338,7 @@ GET  /api/reports/:reportId          Get a report
 
 **Frontend won't start:**
 - Run `npm install` in root
-- Check port 5173 isn't in use
+- Check port 3000 isn't in use
 
 **Stocks not loading:**
 - Yahoo Finance may be rate-limited

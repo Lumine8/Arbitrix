@@ -2,10 +2,10 @@ const express = require("express");
 const fetch = require("node-fetch");
 const dotenv = require("dotenv");
 const jwt = require("jsonwebtoken");
-const bcrypt = require("bcryptjs");
 const mongoose = require("mongoose");
 
-// Import trading engines
+// Import models and trading engines
+const { User } = require("./models");
 const {
   DecisionLogger,
   TradeEvaluator,
@@ -19,6 +19,12 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Fail if JWT_SECRET is not set
+if (!process.env.JWT_SECRET) {
+  console.error("FATAL: JWT_SECRET is not set in environment. Exiting.");
+  process.exit(1);
+}
+
 // ═════════════════════════════════════════════════════════════════
 // MONGODB CONNECTION
 // ═════════════════════════════════════════════════════════════════
@@ -28,45 +34,127 @@ const MONGODB_URI =
 mongoose
   .connect(MONGODB_URI)
   .then(() => console.log("✓ MongoDB connected"))
-  .catch((err) => console.error("MongoDB connection error:", err));
+  .catch((err) => {
+    console.error("MongoDB connection error:", err);
+    process.exit(1);
+  });
 
 // Middleware
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 
-// Enable CORS for frontend
+// CORS
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept",
-  );
+  const allowedOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(",")
+    : ["http://localhost:3000", "http://localhost:5173"];
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+  }
+  res.header("Access-Control-Allow-Headers", "Authorization, Content-Type");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  if (req.method === "OPTIONS") return res.sendStatus(200);
   next();
 });
 
-// In-memory user store (for demo purposes)
-let users = [];
+// ═════════════════════════════════════════════════════════════════
+// AUTH MIDDLEWARE
+// ═════════════════════════════════════════════════════════════════
+function requireAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+  try {
+    const token = authHeader.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = { id: decoded.user.id };
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+}
 
-// Helper to find user by email
-const findUserByEmail = (email) => users.find((user) => user.email === email);
+// ═════════════════════════════════════════════════════════════════
+// AUTH ROUTES
+// ═════════════════════════════════════════════════════════════════
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const { username, email, password, capital } = req.body;
+    if (!username || !email || !password) {
+      return res.status(400).json({ error: "username, email, and password are required" });
+    }
 
-// Helper to find user by username
-const findUserByUsername = (username) =>
-  users.find((user) => user.username === username);
+    const existing = await User.findOne({ $or: [{ email }, { username }] });
+    if (existing) {
+      return res.status(400).json({ error: "User already exists" });
+    }
 
-// Yahoo Finance proxy endpoint
+    const user = new User({ username, email, password, capital: capital || 0 });
+    await user.save();
+
+    const token = jwt.sign(
+      { user: { id: user._id } },
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" },
+    );
+    res.json({ token, user: user.toPublic() });
+  } catch (error) {
+    console.error("Register error:", error.message);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: "email and password are required" });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({ error: "Invalid credentials" });
+    }
+
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return res.status(400).json({ error: "Invalid credentials" });
+    }
+
+    const token = jwt.sign(
+      { user: { id: user._id } },
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" },
+    );
+    res.json({ token, user: user.toPublic() });
+  } catch (error) {
+    console.error("Login error:", error.message);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/auth/me", requireAuth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("-password");
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(user);
+  } catch (error) {
+    return res.status(401).json({ error: "Invalid token" });
+  }
+});
+
+// ═════════════════════════════════════════════════════════════════
+// STOCK DATA (public endpoint)
+// ═════════════════════════════════════════════════════════════════
 app.get("/api/stock/:symbol", async (req, res) => {
   try {
     const { symbol } = req.params;
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=6mo`;
-
     const response = await fetch(url);
-
     if (!response.ok) {
-      return res.status(response.status).json({
-        error: `Yahoo Finance API error: ${response.status}`,
-      });
+      return res.status(response.status).json({ error: `Yahoo Finance API error: ${response.status}` });
     }
-
     const data = await response.json();
     res.json(data);
   } catch (error) {
@@ -75,125 +163,18 @@ app.get("/api/stock/:symbol", async (req, res) => {
   }
 });
 
-// Auth Routes
-app.post("/api/auth/register", async (req, res) => {
-  try {
-    const { username, email, password, capital } = req.body;
-
-    // Check if user already exists
-    if (findUserByEmail(email) || findUserByUsername(username)) {
-      return res.status(400).json({ message: "User already exists" });
-    }
-
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-
-    const newUser = {
-      id: users.length + 1,
-      username,
-      email,
-      password: hashedPassword,
-      capital: capital || 0,
-      createdAt: new Date(),
-    };
-
-    users.push(newUser);
-
-    const payload = {
-      user: {
-        id: newUser.id,
-      },
-    };
-
-    const token = jwt.sign(
-      payload,
-      process.env.JWT_SECRET || "fallback_secret",
-      { expiresIn: "1d" },
-    );
-    res.json({ token });
-  } catch (error) {
-    console.error(error.message);
-    res.status(500).send("Server error");
-  }
-});
-
-app.post("/api/auth/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    // Check if user exists
-    const user = findUserByEmail(email);
-    if (!user) {
-      return res.status(400).json({ message: "Invalid credentials" });
-    }
-
-    // Check password
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ message: "Invalid credentials" });
-    }
-
-    const payload = {
-      user: {
-        id: user.id,
-      },
-    };
-
-    const token = jwt.sign(
-      payload,
-      process.env.JWT_SECRET || "fallback_secret",
-      { expiresIn: "1d" },
-    );
-    res.json({ token });
-  } catch (error) {
-    console.error(error.message);
-    res.status(500).send("Server error");
-  }
-});
-
-app.get("/api/auth/me", async (req, res) => {
-  // For demo, we'll get token from header
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ message: "No token provided" });
-  }
-
-  const token = authHeader.split(" ")[1];
-  try {
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || "fallback_secret",
-    );
-    const user = users.find((u) => u.id === decoded.user.id);
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-    // Return user without password
-    const { password, ...userWithoutPassword } = user;
-    res.json(userWithoutPassword);
-  } catch (error) {
-    return res.status(401).json({ message: "Invalid token" });
-  }
-});
-
 // ═════════════════════════════════════════════════════════════════
-// DECISION LOGGING ENDPOINTS
+// DECISION LOGGING ENDPOINTS (protected)
 // ═════════════════════════════════════════════════════════════════
-
-/**
- * POST /api/decisions/log
- * Log a trade decision with full context
- */
-app.post("/api/decisions/log", async (req, res) => {
+app.post("/api/decisions/log", requireAuth, async (req, res) => {
   try {
-    const { userId, sessionId, ...decisionData } = req.body;
-    if (!userId || !sessionId) {
-      return res.status(400).json({ error: "Missing userId or sessionId" });
+    const { sessionId, ...decisionData } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing sessionId" });
     }
 
     const logged = await DecisionLogger.logDecision({
-      userId,
+      userId: req.user.id,
       sessionId,
       ...decisionData,
     });
@@ -205,16 +186,12 @@ app.post("/api/decisions/log", async (req, res) => {
   }
 });
 
-/**
- * GET /api/decisions/history/:userId/:sessionId
- * Get decision history
- */
-app.get("/api/decisions/history/:userId/:sessionId", async (req, res) => {
+app.get("/api/decisions/history/:sessionId", requireAuth, async (req, res) => {
   try {
-    const { userId, sessionId } = req.params;
+    const { sessionId } = req.params;
     const { limit } = req.query;
     const history = await DecisionLogger.getDecisionHistory(
-      userId,
+      req.user.id,
       sessionId,
       parseInt(limit) || 100,
     );
@@ -226,22 +203,17 @@ app.get("/api/decisions/history/:userId/:sessionId", async (req, res) => {
 });
 
 // ═════════════════════════════════════════════════════════════════
-// TRADE EVALUATION ENDPOINTS
+// TRADE EVALUATION ENDPOINTS (protected)
 // ═════════════════════════════════════════════════════════════════
-
-/**
- * POST /api/trades/evaluate
- * Evaluate a completed trade
- */
-app.post("/api/trades/evaluate", async (req, res) => {
+app.post("/api/trades/evaluate", requireAuth, async (req, res) => {
   try {
-    const { userId, sessionId, ...evalData } = req.body;
-    if (!userId || !sessionId) {
-      return res.status(400).json({ error: "Missing userId or sessionId" });
+    const { sessionId, ...evalData } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing sessionId" });
     }
 
     const evaluation = await TradeEvaluator.evaluateTrade({
-      userId,
+      userId: req.user.id,
       sessionId,
       ...evalData,
     });
@@ -253,14 +225,10 @@ app.post("/api/trades/evaluate", async (req, res) => {
   }
 });
 
-/**
- * GET /api/trades/accuracy/:userId/:sessionId
- * Get accuracy statistics
- */
-app.get("/api/trades/accuracy/:userId/:sessionId", async (req, res) => {
+app.get("/api/trades/accuracy/:sessionId", requireAuth, async (req, res) => {
   try {
-    const { userId, sessionId } = req.params;
-    const stats = await TradeEvaluator.getAccuracyStats(userId, sessionId);
+    const { sessionId } = req.params;
+    const stats = await TradeEvaluator.getAccuracyStats(req.user.id, sessionId);
     res.json({ success: true, data: stats });
   } catch (error) {
     console.error("Error fetching accuracy stats:", error);
@@ -269,22 +237,17 @@ app.get("/api/trades/accuracy/:userId/:sessionId", async (req, res) => {
 });
 
 // ═════════════════════════════════════════════════════════════════
-// PAPER TRADING ENDPOINTS
+// PAPER TRADING ENDPOINTS (protected)
 // ═════════════════════════════════════════════════════════════════
-
-/**
- * POST /api/trades/execute
- * Execute a simulated trade
- */
-app.post("/api/trades/execute", async (req, res) => {
+app.post("/api/trades/execute", requireAuth, async (req, res) => {
   try {
-    const { userId, sessionId, ...tradeData } = req.body;
-    if (!userId || !sessionId) {
-      return res.status(400).json({ error: "Missing userId or sessionId" });
+    const { sessionId, ...tradeData } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing sessionId" });
     }
 
     const trade = await PaperTradingEngine.executeTrade({
-      userId,
+      userId: req.user.id,
       sessionId,
       ...tradeData,
     });
@@ -296,34 +259,30 @@ app.post("/api/trades/execute", async (req, res) => {
   }
 });
 
-/**
- * POST /api/trades/close/:tradeId
- * Close a trade and calculate P&L
- */
-app.post("/api/trades/close/:tradeId", async (req, res) => {
+app.post("/api/trades/close/:tradeId", requireAuth, async (req, res) => {
   try {
     const { tradeId } = req.params;
     const { exit_price } = req.body;
-    if (!exit_price) {
-      return res.status(400).json({ error: "Missing exit_price" });
+    if (!exit_price || isNaN(parseFloat(exit_price))) {
+      return res.status(400).json({ error: "Valid exit_price is required" });
     }
 
-    const trade = await PaperTradingEngine.closeTrade(tradeId, exit_price);
+    const trade = await PaperTradingEngine.closeTrade(
+      tradeId,
+      parseFloat(exit_price),
+      req.user.id,
+    );
     res.json({ success: true, data: trade });
   } catch (error) {
     console.error("Error closing trade:", error);
-    res.status(500).json({ error: "Failed to close trade" });
+    res.status(500).json({ error: error.message || "Failed to close trade" });
   }
 });
 
-/**
- * GET /api/trades/history/:userId/:sessionId
- * Get trade history
- */
-app.get("/api/trades/history/:userId/:sessionId", async (req, res) => {
+app.get("/api/trades/history/:sessionId", requireAuth, async (req, res) => {
   try {
-    const { userId, sessionId } = req.params;
-    const history = await PaperTradingEngine.getTradeHistory(userId, sessionId);
+    const { sessionId } = req.params;
+    const history = await PaperTradingEngine.getTradeHistory(req.user.id, sessionId);
     res.json({ success: true, data: history });
   } catch (error) {
     console.error("Error fetching trade history:", error);
@@ -331,15 +290,11 @@ app.get("/api/trades/history/:userId/:sessionId", async (req, res) => {
   }
 });
 
-/**
- * GET /api/trades/metrics/:userId/:sessionId
- * Get portfolio metrics
- */
-app.get("/api/trades/metrics/:userId/:sessionId", async (req, res) => {
+app.get("/api/trades/metrics/:sessionId", requireAuth, async (req, res) => {
   try {
-    const { userId, sessionId } = req.params;
+    const { sessionId } = req.params;
     const metrics = await PaperTradingEngine.calculatePortfolioMetrics(
-      userId,
+      req.user.id,
       sessionId,
     );
     res.json({ success: true, data: metrics });
@@ -350,22 +305,19 @@ app.get("/api/trades/metrics/:userId/:sessionId", async (req, res) => {
 });
 
 // ═════════════════════════════════════════════════════════════════
-// LEARNING & ADAPTATION ENDPOINTS
+// LEARNING & ADAPTATION ENDPOINTS (protected)
 // ═════════════════════════════════════════════════════════════════
-
-/**
- * POST /api/learning/initialize/:userId
- * Initialize learning parameters
- */
-app.post("/api/learning/initialize/:userId", async (req, res) => {
+app.post("/api/learning/initialize/:userId", requireAuth, async (req, res) => {
   try {
-    const { userId } = req.params;
+    if (req.params.userId !== req.user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
     const { sessionId } = req.body;
     if (!sessionId) {
       return res.status(400).json({ error: "Missing sessionId" });
     }
 
-    const params = await LearningEngine.initializeParameters(userId, sessionId);
+    const params = await LearningEngine.initializeParameters(req.user.id, sessionId);
     res.json({ success: true, data: params });
   } catch (error) {
     console.error("Error initializing learning:", error);
@@ -373,20 +325,18 @@ app.post("/api/learning/initialize/:userId", async (req, res) => {
   }
 });
 
-/**
- * POST /api/learning/adapt/:userId
- * Run adaptation cycle to learn from past trades
- */
-app.post("/api/learning/adapt/:userId", async (req, res) => {
+app.post("/api/learning/adapt/:userId", requireAuth, async (req, res) => {
   try {
-    const { userId } = req.params;
+    if (req.params.userId !== req.user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
     const { sessionId, lookbackWindow } = req.body;
     if (!sessionId) {
       return res.status(400).json({ error: "Missing sessionId" });
     }
 
     const updated = await LearningEngine.runAdaptationCycle(
-      userId,
+      req.user.id,
       sessionId,
       lookbackWindow || 20,
     );
@@ -398,14 +348,12 @@ app.post("/api/learning/adapt/:userId", async (req, res) => {
   }
 });
 
-/**
- * GET /api/learning/parameters/:userId
- * Get current learned parameters
- */
-app.get("/api/learning/parameters/:userId", async (req, res) => {
+app.get("/api/learning/parameters/:userId", requireAuth, async (req, res) => {
   try {
-    const { userId } = req.params;
-    const params = await LearningEngine.getParameters(userId);
+    if (req.params.userId !== req.user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const params = await LearningEngine.getParameters(req.user.id);
     res.json({ success: true, data: params });
   } catch (error) {
     console.error("Error fetching parameters:", error);
@@ -413,14 +361,12 @@ app.get("/api/learning/parameters/:userId", async (req, res) => {
   }
 });
 
-/**
- * GET /api/learning/progress/:userId
- * Get learning progress
- */
-app.get("/api/learning/progress/:userId", async (req, res) => {
+app.get("/api/learning/progress/:userId", requireAuth, async (req, res) => {
   try {
-    const { userId } = req.params;
-    const progress = await LearningEngine.getLearningProgress(userId);
+    if (req.params.userId !== req.user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const progress = await LearningEngine.getLearningProgress(req.user.id);
     res.json({ success: true, data: progress });
   } catch (error) {
     console.error("Error fetching progress:", error);
@@ -428,14 +374,12 @@ app.get("/api/learning/progress/:userId", async (req, res) => {
   }
 });
 
-/**
- * GET /api/learning/regime-insights/:userId
- * Get regime-specific performance insights
- */
-app.get("/api/learning/regime-insights/:userId", async (req, res) => {
+app.get("/api/learning/regime-insights/:userId", requireAuth, async (req, res) => {
   try {
-    const { userId } = req.params;
-    const insights = await LearningEngine.getRegimeInsights(userId);
+    if (req.params.userId !== req.user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const insights = await LearningEngine.getRegimeInsights(req.user.id);
     res.json({ success: true, data: insights });
   } catch (error) {
     console.error("Error fetching regime insights:", error);
@@ -444,13 +388,8 @@ app.get("/api/learning/regime-insights/:userId", async (req, res) => {
 });
 
 // ═════════════════════════════════════════════════════════════════
-// MARKET CONTEXT ENDPOINTS
+// MARKET CONTEXT ENDPOINTS (public)
 // ═════════════════════════════════════════════════════════════════
-
-/**
- * GET /api/context/market
- * Get current market context
- */
 app.get("/api/context/market", async (req, res) => {
   try {
     const context = await ContextEngine.getMarketContext();
@@ -461,58 +400,39 @@ app.get("/api/context/market", async (req, res) => {
   }
 });
 
-/**
- * GET /api/context/volatility-multiplier/:vixLevel
- * Get volatility-adjusted confidence multiplier
- */
 app.get("/api/context/volatility-multiplier/:vixLevel", (req, res) => {
   try {
     const { vixLevel } = req.params;
-    const multiplier = ContextEngine.getVolatilityMultiplier(
-      parseFloat(vixLevel),
-    );
+    const multiplier = ContextEngine.getVolatilityMultiplier(parseFloat(vixLevel));
     res.json({ success: true, multiplier });
   } catch (error) {
-    console.error("Error calculating multiplier:", error);
     res.status(500).json({ error: "Failed to calculate multiplier" });
   }
 });
 
-/**
- * POST /api/context/interpret
- * Interpret market context
- */
 app.post("/api/context/interpret", (req, res) => {
   try {
     const { context } = req.body;
-    if (!context) {
-      return res.status(400).json({ error: "Missing context" });
-    }
+    if (!context) return res.status(400).json({ error: "Missing context" });
     const interpretation = ContextEngine.interpretContext(context);
     res.json({ success: true, interpretation });
   } catch (error) {
-    console.error("Error interpreting context:", error);
     res.status(500).json({ error: "Failed to interpret context" });
   }
 });
 
 // ═════════════════════════════════════════════════════════════════
-// REPORT GENERATION ENDPOINTS
+// REPORT GENERATION ENDPOINTS (protected)
 // ═════════════════════════════════════════════════════════════════
-
-/**
- * POST /api/reports/trade
- * Generate a trade report
- */
-app.post("/api/reports/trade", async (req, res) => {
+app.post("/api/reports/trade", requireAuth, async (req, res) => {
   try {
-    const { userId, sessionId, decisionLogId } = req.body;
-    if (!userId || !sessionId || !decisionLogId) {
+    const { sessionId, decisionLogId } = req.body;
+    if (!sessionId || !decisionLogId) {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
     const report = await ReportGenerator.generateTradeReport(
-      userId,
+      req.user.id,
       sessionId,
       decisionLogId,
     );
@@ -523,19 +443,15 @@ app.post("/api/reports/trade", async (req, res) => {
   }
 });
 
-/**
- * POST /api/reports/session
- * Generate a session report
- */
-app.post("/api/reports/session", async (req, res) => {
+app.post("/api/reports/session", requireAuth, async (req, res) => {
   try {
-    const { userId, sessionId } = req.body;
-    if (!userId || !sessionId) {
-      return res.status(400).json({ error: "Missing userId or sessionId" });
+    const { sessionId } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing sessionId" });
     }
 
     const report = await ReportGenerator.generateSessionReport(
-      userId,
+      req.user.id,
       sessionId,
     );
     res.json({ success: true, reportId: report.reportId, data: report });
@@ -545,15 +461,11 @@ app.post("/api/reports/session", async (req, res) => {
   }
 });
 
-/**
- * GET /api/reports/:reportId
- * Get a specific report
- */
-app.get("/api/reports/:reportId", async (req, res) => {
+app.get("/api/reports/:reportId", requireAuth, async (req, res) => {
   try {
     const { reportId } = req.params;
     const { SystemReport } = require("./models");
-    const report = await SystemReport.findOne({ reportId }).exec();
+    const report = await SystemReport.findOne({ reportId, userId: req.user.id }).exec();
     if (!report) {
       return res.status(404).json({ error: "Report not found" });
     }
@@ -567,28 +479,20 @@ app.get("/api/reports/:reportId", async (req, res) => {
 // ═════════════════════════════════════════════════════════════════
 // HEALTH CHECK & SERVER
 // ═════════════════════════════════════════════════════════════════
-
-/**
- * GET /health
- * Health check endpoint
- */
 app.get("/health", (req, res) => {
   res.json({
     status: "OK",
     timestamp: new Date().toISOString(),
-    mongodb:
-      mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+    mongodb: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
   });
 });
 
-// Start server
 app.listen(PORT, () => {
   console.log(`\n ═════════════════════════════════════════════════════════ `);
   console.log(`  ARBITRIX BACKEND SERVER`);
-  console.log(`  🚀 Server running on port ${PORT}`);
-  console.log(`  📊 Learning engine: ENABLED`);
-  console.log(`  📈 Decision logging: ENABLED`);
-  console.log(`  🧠 Adaptive trading: ENABLED`);
-  console.log(`  📦 Model storage: ./models`);
+  console.log(`  Server running on port ${PORT}`);
+  console.log(`  Learning engine: ENABLED`);
+  console.log(`  Decision logging: ENABLED`);
+  console.log(`  Adaptive trading: ENABLED`);
   console.log(` ═════════════════════════════════════════════════════════\n`);
 });

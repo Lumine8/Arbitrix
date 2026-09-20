@@ -123,6 +123,9 @@ export function WatchlistPanel({
         flexShrink: 0,
       }}>
         WATCHLIST · {watchlist.length} STOCKS
+        {watchlist.some(s => stockMap[s]?.source === 'mock') && (
+          <span style={{ marginLeft: 8, color: '#ffa726', letterSpacing: 1 }}>⚠ SIMULATED</span>
+        )}
       </div>
 
       {/* Stock list */}
@@ -151,6 +154,7 @@ export function WatchlistPanel({
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <span style={{ color: C.head, fontWeight: 700, fontSize: 11 }}>{shortSym(sym)}</span>
+                  {d.source === 'mock' && <span style={{ marginLeft: 4, fontSize: 7, color: '#ffa726', letterSpacing: 1 }}>SIM</span>}
                   {a && <span style={{ marginLeft: 6 }}><SigBadge sig={a.signal} sz={9} /></span>}
                 </div>
                 <span style={{ color: cl(chg), fontSize: 10, fontWeight: 700 }}>{fp(chg)}</span>
