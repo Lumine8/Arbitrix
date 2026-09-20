@@ -208,6 +208,7 @@ arbitrix/
 | **RSI** | Momentum / overbought-oversold | 14 |
 | **MACD** | Momentum reversal signals | 12/26/9 |
 | **Bollinger Bands** | Volatility & support/resistance | 20, 2σ |
+| **Stochastic** | Overbought/oversold + crossover | 14, 3 |
 | **ATR** | Volatility measure | 14 |
 | **Volume** | Strength of price action | Relative |
 
@@ -221,6 +222,7 @@ composite = trend_weight × trend_score
           + macd_weight × macd_score
           + bb_weight × bb_score
           + vol_weight × vol_score
+          + stoch_weight × stoch_score
 ```
 
 - **composite > threshold** → BUY
