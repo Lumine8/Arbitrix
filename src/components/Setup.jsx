@@ -55,7 +55,7 @@ export function Setup({ onStart }) {
           </div>
 
           <div style={{ fontSize: 8, color: C.cyan, letterSpacing: 6, marginBottom: 10 }}>
-            NSE · AI · PIEC EDITION
+            NSE · AI · TRADING PLATFORM
           </div>
           <div style={{
             fontFamily: C.serif, fontSize: 38, fontWeight: 800,
@@ -70,8 +70,8 @@ export function Setup({ onStart }) {
             marginTop: 16, fontSize: 11, color: C.muted, lineHeight: 2,
             maxWidth: 380, margin: '16px auto 0',
           }}>
-            Auto BUY/SELL engine powered by PIEC entropy · RLFS regime detection ·
-            S-ADR adaptive position sizing · AI trade explanations
+            Auto BUY/SELL engine powered by technical analysis, signal weighting,
+            and adaptive position sizing
           </div>
         </div>
 
@@ -80,8 +80,8 @@ export function Setup({ onStart }) {
           display: 'flex', flexWrap: 'wrap', gap: 7,
           justifyContent: 'center', marginBottom: 28,
         }}>
-          {['⬡ PIEC Entropy', '◈ RLFS Monitor', '◐ S-ADR Sizing',
-            '▲▼ Auto Trade', '✦ AI Reasoning', '🛡 Stop-Loss'].map(f => (
+          {['▲ EMA Trend', '◈ RSI Signal', '◐ MACD Crossover',
+            '▲▼ Auto Trade', '◆ Bollinger Bands', '🛡 Stop-Loss'].map(f => (
             <span key={f} style={{
               padding: '4px 12px', background: C.card,
               border: `1px solid ${C.border}`, color: C.muted, fontSize: 9,

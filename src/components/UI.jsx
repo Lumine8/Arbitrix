@@ -26,23 +26,6 @@ export function SigBadge({ sig, sz = 11 }) {
   )
 }
 
-/* PIEC tier badge: STABLE / DEGRADED / REJECTED */
-export function TierBadge({ tier }) {
-  const cols = { STABLE: C.green, DEGRADED: C.amber, REJECTED: C.red }
-  const col = cols[tier] || C.green
-  return (
-    <span style={{
-      background: col + '12', color: col,
-      padding: '2px 8px', fontSize: 10,
-      fontWeight: 700, letterSpacing: 1,
-      border: `1px solid ${col}28`,
-      fontFamily: C.mono,
-    }}>
-      {tier}
-    </span>
-  )
-}
-
 /* Horizontal score bar with label */
 export function ScoreBar({ label, value, minV = -1, maxV = 1 }) {
   const pct = ((value - minV) / (maxV - minV)) * 100
@@ -61,37 +44,6 @@ export function ScoreBar({ label, value, minV = -1, maxV = 1 }) {
           height: '100%', borderRadius: 2, background: col,
           width: Math.max(0, Math.min(100, pct)) + '%',
         }} />
-      </div>
-    </div>
-  )
-}
-
-/* Entropy gauge bar */
-export function EntropyBar({ value }) {
-  const pct = value * 100
-  const col = value < 0.4 ? C.green : value < 0.7 ? C.amber : C.red
-  return (
-    <div>
-      <div style={{
-        display: 'flex', justifyContent: 'space-between',
-        fontSize: 9, color: C.muted, marginBottom: 3, fontFamily: C.mono,
-      }}>
-        <span>PIEC ENTROPY</span>
-        <span style={{ color: col }}>{(value * 100).toFixed(1)}%</span>
-      </div>
-      <div style={{ height: 4, background: C.dim, borderRadius: 2 }}>
-        <div style={{
-          height: '100%', borderRadius: 2,
-          background: `linear-gradient(90deg, ${C.green}, ${C.amber}, ${C.red})`,
-          width: pct + '%', transition: 'width 0.5s ease',
-        }} />
-      </div>
-      <div style={{
-        display: 'flex', justifyContent: 'space-between',
-        fontSize: 8, color: C.dim, marginTop: 2, fontFamily: C.mono,
-      }}>
-        <span>LOW (trending)</span>
-        <span>HIGH (random)</span>
       </div>
     </div>
   )

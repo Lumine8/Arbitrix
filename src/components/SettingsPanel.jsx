@@ -89,13 +89,7 @@ export function SettingsPanel({ settings, onChange, onClose }) {
             onChange={v => set('confirmSell', v)}
           />
           <Toggle
-            label="💡 Show AI Reasoning"
-            desc="AI explains why this is the best stock vs alternatives in the confirmation."
-            checked={settings.showWhy}
-            onChange={v => set('showWhy', v)}
-          />
-          <Toggle
-            label="🛡 Auto Stop-Loss (−5%)"
+            label="🛡 Auto Stop-Loss (-5%)"
             desc="Automatically sell any position that falls 5% below your average buy price."
             checked={settings.stopLossAuto}
             onChange={v => set('stopLossAuto', v)}

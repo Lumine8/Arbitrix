@@ -256,22 +256,6 @@ export async function getLearningProgress(userId) {
   }
 }
 
-/**
- * Get regime insights
- */
-export async function getRegimeInsights(userId) {
-  try {
-    const response = await fetch(
-      `${API_BASE}/learning/regime-insights/${userId}`,
-    );
-    const data = await response.json();
-    return data.data;
-  } catch (error) {
-    console.error("Error fetching regime insights:", error);
-    return null;
-  }
-}
-
 // ═════════════════════════════════════════════════════════════════
 // MARKET CONTEXT API
 // ═════════════════════════════════════════════════════════════════
@@ -446,19 +430,6 @@ export function determineTradeAction(mode, requiresConfirmation = false) {
 export function formatAccuracy(value) {
   if (!value && value !== 0) return "—";
   return `${value.toFixed(1)}%`;
-}
-
-/**
- * Get regime label
- */
-export function getRegimeLabel(regime) {
-  const labels = {
-    high_entropy: "🌪️ High Entropy",
-    low_entropy: "📈 Stable Trend",
-    high_drift: "⚠️ Drifting",
-    stable: "✓ Stable",
-  };
-  return labels[regime] || regime;
 }
 
 /**

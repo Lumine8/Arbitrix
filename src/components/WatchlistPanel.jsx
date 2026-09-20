@@ -3,7 +3,7 @@
 ═══════════════════════════════════════════ */
 
 import { C, fc, fp, cl, shortSym } from '../lib/constants'
-import { SigBadge, TierBadge } from './UI'
+import { SigBadge } from './UI'
 
 export function WatchlistPanel({
   watchlist, stockMap, analyses, selected, onSelect,
@@ -48,7 +48,7 @@ export function WatchlistPanel({
         <span style={{ fontFamily: C.serif, fontSize: 15, fontWeight: 800, color: C.head, letterSpacing: 1 }}>
           ARBITRIX
         </span>
-        <span style={{ fontSize: 7, color: C.dim, letterSpacing: 2, marginLeft: 2 }}>PIEC</span>
+        <span style={{ fontSize: 7, color: C.dim, letterSpacing: 2, marginLeft: 2 }}>TA</span>
 
         <div style={{ flex: 1 }} />
 
@@ -159,13 +159,13 @@ export function WatchlistPanel({
                 <span style={{ color: C.muted }}>{fc(d.price)}</span>
                 {a && (
                   <span style={{ color: C.dim }}>
-                    RLFS {(a.rlfs * 100).toFixed(0)}% · <TierBadge tier={a.tier} />
+                    conf {a.confidence}%
                   </span>
                 )}
               </div>
               {a && a.signal !== 'HOLD' && (
                 <div style={{ marginTop: 4, fontSize: 8, color: C.dim }}>
-                  conf {a.confidence}% · ω {(a.omega * 100).toFixed(0)}%
+                  conf {a.confidence}%
                 </div>
               )}
             </div>
