@@ -275,7 +275,7 @@ app.get("/api/trades/accuracy/:sessionId", requireAuth, async (req, res) => {
 // ═════════════════════════════════════════════════════════════════
 app.post("/api/trades/execute", requireAuth, async (req, res) => {
   try {
-    const { sessionId, ...tradeData } = req.body;
+    const { sessionId, idempotencyKey, ...tradeData } = req.body;
     if (!validateString(sessionId, 1, 100)) {
       return res.status(400).json({ error: "Missing or invalid sessionId" });
     }
@@ -285,8 +285,8 @@ app.post("/api/trades/execute", requireAuth, async (req, res) => {
     if (!validateString(tradeData.stock, 1, 20)) {
       return res.status(400).json({ error: "Invalid stock symbol" });
     }
-    if (!validatePositiveNumber(tradeData.qty) || tradeData.qty > 100000) {
-      return res.status(400).json({ error: "qty must be a positive number" });
+    if (!Number.isInteger(tradeData.qty) || tradeData.qty < 1 || tradeData.qty > 100000) {
+      return res.status(400).json({ error: "qty must be a positive integer" });
     }
     if (!validatePositiveNumber(tradeData.price) || tradeData.price > 1e9) {
       return res.status(400).json({ error: "Invalid price" });
@@ -295,13 +295,29 @@ app.post("/api/trades/execute", requireAuth, async (req, res) => {
     const trade = await PaperTradingEngine.executeTrade({
       userId: req.user.id,
       sessionId,
+      idempotencyKey,
       ...tradeData,
     });
 
     res.json({ success: true, tradeId: trade.tradeId, data: trade });
   } catch (error) {
     console.error("Error executing trade:", error);
-    res.status(500).json({ error: "Failed to execute trade" });
+    res.status(error.message.includes("Insufficient") ? 400 : 500).json({ error: error.message || "Failed to execute trade" });
+  }
+});
+
+app.post("/api/trades/init", requireAuth, async (req, res) => {
+  try {
+    const { initialCash } = req.body;
+    if (!validatePositiveNumber(initialCash) || initialCash > 1e12) {
+      return res.status(400).json({ error: "Invalid initialCash" });
+    }
+    await PaperTradingEngine.initializeAccount(req.user.id, initialCash);
+    const balance = await PaperTradingEngine.getCashBalance(req.user.id);
+    res.json({ success: true, cash: balance });
+  } catch (error) {
+    console.error("Error initializing account:", error);
+    res.status(500).json({ error: "Failed to initialize account" });
   }
 });
 

@@ -77,6 +77,10 @@ export default function App() {
 
   /* ── Helper functions for trade execution ── */
   const executeBuy = useCallback((symbol, qty, price, analysis, isAuto) => {
+    if (!Number.isFinite(price) || price <= 0 || !Number.isInteger(qty) || qty < 1) {
+      notify('INFO', `Invalid BUY for ${shortSym(symbol)}`, 'Price and quantity must be valid.')
+      return false
+    }
     const cost = qty * price
     if (cost > cashR.current) {
       notify('INFO', `Insufficient funds for ${shortSym(symbol)}`,
@@ -84,13 +88,22 @@ export default function App() {
       return false
     }
 
-    setCash(c => c - cost)
-    setHoldings(h => {
-      const prev = h[symbol] || { qty: 0, avgPrice: 0 }
-      const nq = prev.qty + qty
-      const na = (prev.qty * prev.avgPrice + qty * price) / nq
-      return { ...h, [symbol]: { qty: nq, avgPrice: +na.toFixed(2) } }
-    })
+    // Update refs first so interval callbacks see the new state immediately
+    const nextCash = cashR.current - cost
+    cashR.current = nextCash
+    setCash(nextCash)
+
+    const currentHoldings = holdingsR.current
+    const prev = currentHoldings[symbol] || { qty: 0, avgPrice: 0 }
+    const nq = prev.qty + qty
+    const na = (prev.qty * prev.avgPrice + qty * price) / nq
+    const nextHoldings = {
+      ...currentHoldings,
+      [symbol]: { qty: nq, avgPrice: +na.toFixed(2) },
+    }
+    holdingsR.current = nextHoldings
+    setHoldings(() => nextHoldings)
+
     setTrades(t => [{
       id: uid(), type: 'BUY', symbol, name: stockMapR.current[symbol]?.name || symbol, qty: qty, price, total: cost,
       time: new Date().toLocaleTimeString('en-IN'),
@@ -114,19 +127,28 @@ export default function App() {
   }, [notify, user])
 
   const executeSell = useCallback((symbol, qty, price, analysis, isAuto) => {
+    if (!Number.isFinite(price) || price <= 0 || !Number.isInteger(qty) || qty < 1) {
+      notify('INFO', `Invalid SELL for ${shortSym(symbol)}`, 'Price and quantity must be valid.')
+      return false
+    }
     const h = holdingsR.current[symbol]
     if (!h || h.qty < qty) return false
 
     const proceeds = qty * price
     const pnl      = (price - h.avgPrice) * qty
-    setCash(c => c + proceeds)
-    setHoldings(h2 => {
-      const nq = h.qty - qty
-      const next = { ...h2 }
-      if (nq === 0) delete next[symbol]
-      else next[symbol] = { ...h, qty: nq }
-      return next
-    })
+
+    // Update refs first
+    const nextCash = cashR.current + proceeds
+    cashR.current = nextCash
+    setCash(nextCash)
+
+    const nq = h.qty - qty
+    const nextHoldings = { ...holdingsR.current }
+    if (nq === 0) delete nextHoldings[symbol]
+    else nextHoldings[symbol] = { ...h, qty: nq }
+    holdingsR.current = nextHoldings
+    setHoldings(() => nextHoldings)
+
     setTrades(t => [{
       id: uid(), type: 'SELL', symbol, name: stockMapR.current[symbol]?.name || symbol, qty: qty, price, pnl, total: proceeds,
       time: new Date().toLocaleTimeString('en-IN'),
@@ -182,7 +204,6 @@ export default function App() {
     const allA  = analysesR.current
     const allSM = stockMapR.current
     const allH  = holdingsR.current
-    const curCash = cashR.current
     let signals = 0
 
     for (const [symbol, a] of Object.entries(allA)) {
@@ -194,22 +215,24 @@ export default function App() {
       const isMock = stk.source === 'mock'
 
       // Stop-loss check
-      if (s.stopLossAuto && h && h.qty > 0) {
-        const stopLossPct = parseFloat(slPct) / 100 || TRADING_PARAMS.STOP_LOSS_PERCENTAGE
-        const slPrice = h.avgPrice * (1 - stopLossPct)
-        if (price < slPrice) {
-          executeTrade('SELL', symbol, h.qty, price, a, true)
-          notify('SL', `Stop-loss: ${shortSym(symbol)}`,
-            `Price ${fc(price)} hit SL ${fc(slPrice)}`)
-          continue
-        }
+      const slPrice = h
+        ? h.avgPrice * (1 - parseFloat(slPct) / 100 || TRADING_PARAMS.STOP_LOSS_PERCENTAGE)
+        : null
+      if (s.stopLossAuto && h && slPrice !== null && price < slPrice) {
+        executeTrade('SELL', symbol, h.qty, price, a, true)
+        notify('SL', `Stop-loss: ${shortSym(symbol)}`,
+          `Price ${fc(price)} hit SL ${fc(slPrice)}`)
+        continue
       }
 
       // BUY signal
       if (a.signal === 'BUY' && a.confidence > TRADING_PARAMS.MIN_CONFIDENCE_FOR_TRADE) {
-        const maxAlloc = curCash * TRADING_PARAMS.MAX_ALLOCATION_PER_TRADE
+        // Re-read cash for every candidate because an earlier BUY in this scan
+        // may already have reserved part of the available cash.
+        const availableCash = cashR.current
+        const maxAlloc = availableCash * TRADING_PARAMS.MAX_ALLOCATION_PER_TRADE
         const shares   = Math.max(1, Math.floor(maxAlloc / price))
-        if (shares * price > curCash) continue
+        if (shares * price > availableCash) continue
         const alreadyQ = queue.current.some(q => q.symbol === symbol && q.type === 'BUY')
         if (alreadyQ) continue
         signals++

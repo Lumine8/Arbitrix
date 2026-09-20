@@ -464,6 +464,95 @@ const SystemReportSchema = new mongoose.Schema(
   { timestamps: true, collection: "system_reports" },
 );
 
+// ═════════════════════════════════════════════════════════════════
+// ORDER SCHEMA
+// User/strategy intent — not a fill, must not change cash
+// ═════════════════════════════════════════════════════════════════
+const OrderSchema = new mongoose.Schema(
+  {
+    userId: { type: String, required: true, index: true },
+    sessionId: { type: String, required: true, index: true },
+    symbol: { type: String, required: true },
+    side: { type: String, enum: ["BUY", "SELL"], required: true },
+    quantity: { type: Number, required: true, min: 1 },
+    submittedAt: { type: Date, default: Date.now },
+    strategyId: String,
+    decisionId: { type: mongoose.Schema.Types.ObjectId, ref: "decision_logs" },
+    status: {
+      type: String,
+      enum: ["ACCEPTED", "REJECTED", "FILLED", "CANCELLED"],
+      default: "ACCEPTED",
+    },
+    idempotencyKey: { type: String, unique: true, sparse: true },
+    rejectReason: String,
+  },
+  { timestamps: true, collection: "orders" },
+);
+
+// ═════════════════════════════════════════════════════════════════
+// EXECUTION / FILL SCHEMA
+// Immutable accounting event — the source of truth
+// ═════════════════════════════════════════════════════════════════
+const ExecutionSchema = new mongoose.Schema(
+  {
+    orderId: { type: mongoose.Schema.Types.ObjectId, ref: "orders", required: true },
+    userId: { type: String, required: true, index: true },
+    sessionId: { type: String, required: true, index: true },
+    symbol: { type: String, required: true },
+    side: { type: String, enum: ["BUY", "SELL"], required: true },
+    quantity: { type: Number, required: true },
+    requestedPrice: { type: Number, required: true },
+    fillPrice: { type: Number, required: true },
+    grossValue: { type: Number, required: true },
+    commission: { type: Number, default: 0 },
+    taxesAndFees: { type: Number, default: 0 },
+    slippageValue: { type: Number, default: 0 },
+    executedAt: { type: Date, default: Date.now },
+  },
+  { timestamps: true, collection: "executions" },
+);
+
+// ═════════════════════════════════════════════════════════════════
+// POSITION SCHEMA
+// One aggregate position per userId + symbol (long-only)
+// ═════════════════════════════════════════════════════════════════
+const PositionSchema = new mongoose.Schema(
+  {
+    userId: { type: String, required: true },
+    symbol: { type: String, required: true },
+    quantity: { type: Number, default: 0, min: 0 },
+    averageCost: { type: Number, default: 0 },
+    totalCost: { type: Number, default: 0 },
+    realizedPnl: { type: Number, default: 0 },
+    stopPrice: Number,
+    highestClose: Number,
+    updatedAt: { type: Date, default: Date.now },
+  },
+  { timestamps: true, collection: "positions" },
+);
+
+PositionSchema.index({ userId: 1, symbol: 1 }, { unique: true });
+
+// ═════════════════════════════════════════════════════════════════
+// CASH ENTRY SCHEMA
+// Append-only ledger for auditability
+// ═════════════════════════════════════════════════════════════════
+const CashEntrySchema = new mongoose.Schema(
+  {
+    userId: { type: String, required: true, index: true },
+    executionId: { type: mongoose.Schema.Types.ObjectId, ref: "executions" },
+    amount: { type: Number, required: true },
+    reason: {
+      type: String,
+      enum: ["INITIAL_DEPOSIT", "BUY_SETTLEMENT", "SELL_SETTLEMENT", "FEE"],
+      required: true,
+    },
+    balanceAfter: { type: Number, required: true },
+    createdAt: { type: Date, default: Date.now },
+  },
+  { timestamps: true, collection: "cash_entries" },
+);
+
 // Create and export models
 const models = {
   User: mongoose.model("User", UserSchema),
@@ -479,6 +568,10 @@ const models = {
     PortfolioSnapshotSchema,
   ),
   SystemReport: mongoose.model("SystemReport", SystemReportSchema),
+  Order: mongoose.model("Order", OrderSchema),
+  Execution: mongoose.model("Execution", ExecutionSchema),
+  Position: mongoose.model("Position", PositionSchema),
+  CashEntry: mongoose.model("CashEntry", CashEntrySchema),
 };
 
 module.exports = models;

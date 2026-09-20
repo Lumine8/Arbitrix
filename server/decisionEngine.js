@@ -3,7 +3,15 @@ const {
   TradeEvaluation,
   PaperTrade,
   LearnedParameters,
+  Order,
+  Execution,
+  Position,
+  CashEntry,
 } = require("./models");
+
+const BUY_COMMISSION_RATE = 0.0005;
+const SELL_COMMISSION_RATE = 0.0005;
+const SLIPPAGE_RANGE = { min: 0.001, max: 0.003 };
 
 // ═════════════════════════════════════════════════════════════════
 // DECISION LOGGING SERVICE
@@ -290,7 +298,8 @@ class TradeEvaluator {
 
 class PaperTradingEngine {
   /**
-   * Execute a simulated trade
+   * Place and fill an order (long-only).
+   * BUY opens/increases a position. SELL reduces/closes an existing position.
    */
   static async executeTrade(params) {
     try {
@@ -305,57 +314,164 @@ class PaperTradingEngine {
         decision_confidence,
         decision_tier,
         execution_mode,
+        idempotencyKey,
       } = params;
 
       if (!userId || !sessionId || !type || !stock || !qty || !price) {
         throw new Error("Missing required trade parameters");
       }
-      if (qty <= 0 || price <= 0) {
-        throw new Error("qty and price must be positive");
+      if (!["BUY", "SELL"].includes(type)) {
+        throw new Error("type must be BUY or SELL");
+      }
+      if (qty <= 0 || !Number.isInteger(qty)) {
+        throw new Error("qty must be a positive integer");
+      }
+      if (price <= 0 || !Number.isFinite(price)) {
+        throw new Error("price must be a positive number");
       }
 
-      // Simulate slippage (0.1% - 0.3% depending on market conditions)
-      const slippage_pct = (Math.random() * 0.2 + 0.1) / 100;
-      const slippage_amount = price * qty * slippage_pct;
+      // Check idempotency
+      if (idempotencyKey) {
+        const existing = await Order.findOne({ idempotencyKey }).exec();
+        if (existing) {
+          const exec = await Execution.findOne({ orderId: existing._id }).exec();
+          return { orderId: existing._id, tradeId: existing._id, fill: exec };
+        }
+      }
 
-      // Transaction costs (0.05% fixed, entry side)
-      const transaction_cost = price * qty * 0.0005;
+      // SELL validation: must have sufficient position
+      if (type === "SELL") {
+        const pos = await Position.findOne({ userId, symbol: stock }).exec();
+        if (!pos || pos.quantity < qty) {
+          const order = new Order({
+            userId, sessionId, symbol: stock, side: "SELL", quantity: qty,
+            status: "REJECTED", rejectReason: "Insufficient position",
+            idempotencyKey,
+          });
+          await order.save();
+          throw new Error("Insufficient position to sell");
+        }
+      }
 
-      const actual_price =
-        type === "BUY"
-          ? price * (1 + slippage_pct)
-          : price * (1 - slippage_pct);
+      // BUY validation: check cash
+      if (type === "BUY") {
+        const cashBalance = await PaperTradingEngine.getCashBalance(userId);
+        const slippagePct = (Math.random() * (SLIPPAGE_RANGE.max - SLIPPAGE_RANGE.min) + SLIPPAGE_RANGE.min);
+        const estimatedFill = price * (1 + slippagePct);
+        const estimatedCost = estimatedFill * qty;
+        const estimatedCommission = estimatedCost * BUY_COMMISSION_RATE;
+        if (estimatedCost + estimatedCommission > cashBalance) {
+          const order = new Order({
+            userId, sessionId, symbol: stock, side: "BUY", quantity: qty,
+            status: "REJECTED", rejectReason: "Insufficient cash",
+            idempotencyKey,
+          });
+          await order.save();
+          throw new Error("Insufficient cash");
+        }
+      }
 
-      // entry_total must match the actual fill price
-      const entry_total = actual_price * qty;
-
-      const tradeId = `${userId}-${sessionId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-
-      const trade = new PaperTrade({
-        userId,
-        sessionId,
-        tradeId,
-        type,
-        stock,
-        qty,
-        entry_price: actual_price,
-        entry_time: new Date(),
-        slippage_pct,
-        slippage_amount,
-        transaction_cost,
-        entry_total,
-        decisionLogId,
-        decision_confidence,
-        decision_tier,
-        execution_mode,
-        status: "OPEN",
+      // Create Order
+      const order = new Order({
+        userId, sessionId, symbol: stock, side: type, quantity: qty,
+        status: "ACCEPTED", idempotencyKey, decisionId: decisionLogId,
       });
+      await order.save();
 
-      const saved = await trade.save();
-      console.log(
-        `✓ ${type} trade executed: ${qty}×${stock} @ ${actual_price.toFixed(2)}`,
-      );
-      return saved;
+      // Calculate fill with slippage
+      const slippagePct = (Math.random() * (SLIPPAGE_RANGE.max - SLIPPAGE_RANGE.min) + SLIPPAGE_RANGE.min);
+      const fillPrice = type === "BUY"
+        ? price * (1 + slippagePct)
+        : price * (1 - slippagePct);
+
+      const grossValue = fillPrice * qty;
+      const commissionRate = type === "BUY" ? BUY_COMMISSION_RATE : SELL_COMMISSION_RATE;
+      const commission = grossValue * commissionRate;
+      const slippageValue = Math.abs(fillPrice - price) * qty;
+
+      // Create immutable Execution
+      const execution = new Execution({
+        orderId: order._id,
+        userId, sessionId, symbol: stock, side: type,
+        quantity: qty,
+        requestedPrice: price,
+        fillPrice,
+        grossValue,
+        commission,
+        slippageValue,
+      });
+      await execution.save();
+
+      // Update Order status
+      order.status = "FILLED";
+      await order.save();
+
+      // Update Position atomically
+      const pos = await Position.findOne({ userId, symbol: stock }).exec();
+
+      if (type === "BUY") {
+        const buyCost = grossValue + commission;
+        if (pos) {
+          const newTotalCost = pos.totalCost + buyCost;
+          const newQuantity = pos.quantity + qty;
+          pos.quantity = newQuantity;
+          pos.totalCost = newTotalCost;
+          pos.averageCost = newTotalCost / newQuantity;
+        } else {
+          const newPos = new Position({
+            userId, symbol: stock,
+            quantity: qty,
+            totalCost: grossValue + commission,
+            averageCost: (grossValue + commission) / qty,
+          });
+          await newPos.save();
+        }
+      } else {
+        // SELL: reduce position
+        const costBasis = pos.averageCost * qty;
+        const netProceeds = grossValue - commission;
+        const realizedPnl = netProceeds - costBasis;
+
+        pos.quantity -= qty;
+        pos.totalCost = pos.averageCost * pos.quantity;
+        pos.realizedPnl += realizedPnl;
+        if (pos.quantity === 0) {
+          pos.totalCost = 0;
+          pos.averageCost = 0;
+        }
+      }
+
+      if (pos) {
+        pos.updatedAt = new Date();
+        await pos.save();
+      }
+
+      // Record cash entry
+      const cashBalance = await PaperTradingEngine.getCashBalance(userId);
+      if (type === "BUY") {
+        const totalCost = grossValue + commission;
+        await new CashEntry({
+          userId, executionId: execution._id,
+          amount: -totalCost, reason: "BUY_SETTLEMENT",
+          balanceAfter: cashBalance - totalCost,
+        }).save();
+      } else {
+        const netProceeds = grossValue - commission;
+        await new CashEntry({
+          userId, executionId: execution._id,
+          amount: netProceeds, reason: "SELL_SETTLEMENT",
+          balanceAfter: cashBalance + netProceeds,
+        }).save();
+      }
+
+      console.log(`✓ ${type} filled: ${qty}×${stock} @ ${fillPrice.toFixed(2)} (commission: ${commission.toFixed(2)})`);
+
+      return {
+        orderId: order._id,
+        tradeId: order._id,
+        fill: execution,
+        position: pos ? { quantity: pos.quantity, averageCost: pos.averageCost } : null,
+      };
     } catch (error) {
       console.error("Error executing trade:", error);
       throw error;
@@ -363,44 +479,52 @@ class PaperTradingEngine {
   }
 
   /**
-   * Close a trade and calculate P&L
+   * Get cash balance from cash entry ledger
+   */
+  static async getCashBalance(userId) {
+    const lastEntry = await CashEntry.findOne({ userId })
+      .sort({ createdAt: -1 })
+      .exec();
+    return lastEntry ? lastEntry.balanceAfter : 0;
+  }
+
+  /**
+   * Initialize account with initial deposit
+   */
+  static async initializeAccount(userId, initialCash) {
+    const existing = await CashEntry.findOne({ userId }).exec();
+    if (!existing) {
+      await new CashEntry({
+        userId, amount: initialCash,
+        reason: "INITIAL_DEPOSIT",
+        balanceAfter: initialCash,
+      }).save();
+    }
+  }
+
+  /**
+   * Close position (SELL entire holding)
    */
   static async closeTrade(tradeId, exit_price, userId) {
     try {
-      const trade = await PaperTrade.findOne({ tradeId }).exec();
-      if (!trade) throw new Error("Trade not found");
-      if (trade.userId !== userId) throw new Error("Forbidden");
-      if (trade.status === "CLOSED") throw new Error("Trade is already closed");
+      // Find the original order to get the stock symbol
+      const order = await Order.findById(tradeId).exec();
+      if (!order) throw new Error("Trade not found");
+      if (order.userId !== userId) throw new Error("Forbidden");
 
-      // Apply slippage on exit
-      const slippage_pct = (Math.random() * 0.2 + 0.1) / 100;
-      const actual_exit_price =
-        trade.type === "SELL"
-          ? exit_price * (1 + slippage_pct)
-          : exit_price * (1 - slippage_pct);
+      const pos = await Position.findOne({ userId, symbol: order.symbol }).exec();
+      if (!pos || pos.quantity <= 0) throw new Error("No open position");
 
-      const exit_total = actual_exit_price * trade.qty;
-
-      // Exit-side transaction cost (0.05%)
-      const exit_cost = exit_total * 0.0005;
-
-      const gross_pnl = exit_total - trade.entry_total;
-      const net_pnl = gross_pnl - trade.transaction_cost - exit_cost;
-      const pnl_pct = (net_pnl / trade.entry_total) * 100;
-
-      trade.exit_price = actual_exit_price;
-      trade.exit_time = new Date();
-      trade.exit_total = exit_total;
-      trade.gross_pnl = gross_pnl;
-      trade.net_pnl = net_pnl;
-      trade.pnl_pct = pnl_pct;
-      trade.status = "CLOSED";
-
-      const updated = await trade.save();
-      console.log(
-        `✓ Trade closed: P&L = ${net_pnl.toFixed(2)} (${pnl_pct.toFixed(2)}%)`,
-      );
-      return updated;
+      // Create a SELL order for the full position
+      return await PaperTradingEngine.executeTrade({
+        userId,
+        sessionId: order.sessionId,
+        type: "SELL",
+        stock: order.symbol,
+        qty: pos.quantity,
+        price: exit_price,
+        execution_mode: "MANUAL",
+      });
     } catch (error) {
       console.error("Error closing trade:", error);
       throw error;
@@ -408,58 +532,56 @@ class PaperTradingEngine {
   }
 
   /**
-   * Get trade history
+   * Get trade history (from executions)
    */
   static async getTradeHistory(userId, sessionId, limit = 50) {
-    return await PaperTrade.find({ userId, sessionId })
-      .sort({ createdAt: -1 })
+    return await Execution.find({ userId, sessionId })
+      .sort({ executedAt: -1 })
       .limit(limit)
       .exec();
   }
 
   /**
-   * Calculate portfolio P&L
+   * Calculate portfolio metrics from positions and cash ledger
    */
   static async calculatePortfolioMetrics(userId, sessionId) {
-    const trades = await PaperTrade.find({
-      userId,
-      sessionId,
-      status: "CLOSED",
-    }).exec();
+    const positions = await Position.find({ userId, quantity: { $gt: 0 } }).exec();
+    const cashBalance = await PaperTradingEngine.getCashBalance(userId);
+    const closedPositions = await Position.find({ userId, quantity: 0, realizedPnl: { $ne: 0 } }).exec();
 
-    if (trades.length === 0) {
-      return {
-        total_pnl: 0,
-        realized_pnl: 0,
-        win_rate: 0,
-        avg_win: 0,
-        avg_loss: 0,
-      };
-    }
+    const totalRealizedPnl = closedPositions.reduce((sum, p) => sum + p.realizedPnl, 0);
+    const wins = closedPositions.filter(p => p.realizedPnl > 0);
+    const losses = closedPositions.filter(p => p.realizedPnl < 0);
 
-    const wins = trades.filter((t) => t.net_pnl > 0);
-    const losses = trades.filter((t) => t.net_pnl < 0);
-    const total_pnl = trades.reduce((sum, t) => sum + t.net_pnl, 0);
-    const avg_win =
-      wins.length > 0
-        ? wins.reduce((sum, t) => sum + t.net_pnl, 0) / wins.length
-        : 0;
-    const avg_loss =
-      losses.length > 0
-        ? losses.reduce((sum, t) => sum + t.net_pnl, 0) / losses.length
-        : 0;
-    const profit_factor = avg_loss === 0 ? 0 : Math.abs(avg_win / avg_loss);
+    const totalUnrealizedPnl = positions.reduce((sum, p) => {
+      // Use averageCost for unrealized since we don't have live prices here
+      return sum + 0; // Would need current prices for accurate unrealized
+    }, 0);
 
     return {
-      total_trades: trades.length,
-      total_pnl: +total_pnl.toFixed(2),
-      realized_pnl: +total_pnl.toFixed(2),
-      win_rate: +((wins.length / trades.length) * 100).toFixed(2),
-      avg_win: +avg_win.toFixed(2),
-      avg_loss: +avg_loss.toFixed(2),
-      profit_factor: +profit_factor.toFixed(2),
-      winning_trades: wins.length,
-      losing_trades: losses.length,
+      cash: +cashBalance.toFixed(2),
+      openPositions: positions.length,
+      positions: positions.map(p => ({
+        symbol: p.symbol,
+        quantity: p.quantity,
+        averageCost: +p.averageCost.toFixed(2),
+        totalCost: +p.totalCost.toFixed(2),
+        realizedPnl: +p.realizedPnl.toFixed(2),
+      })),
+      realizedPnl: +totalRealizedPnl.toFixed(2),
+      totalTrades: closedPositions.length + positions.filter(p => p.quantity > 0).length,
+      winRate: closedPositions.length > 0
+        ? +((wins.length / closedPositions.length) * 100).toFixed(2)
+        : 0,
+      avgWin: wins.length > 0
+        ? +(wins.reduce((s, p) => s + p.realizedPnl, 0) / wins.length).toFixed(2)
+        : 0,
+      avgLoss: losses.length > 0
+        ? +(losses.reduce((s, p) => s + p.realizedPnl, 0) / losses.length).toFixed(2)
+        : 0,
+      profitFactor: losses.length > 0 && losses.reduce((s, p) => s + Math.abs(p.realizedPnl), 0) > 0
+        ? +(wins.reduce((s, p) => s + p.realizedPnl, 0) / losses.reduce((s, p) => s + Math.abs(p.realizedPnl), 0)).toFixed(2)
+        : 0,
     };
   }
 }
