@@ -157,9 +157,13 @@ export async function executeTradeOnServer(sessionId, tradeData) {
   try {
     const response = await authPost(`${API_BASE}/trades/execute`, {
       sessionId,
+      idempotencyKey: crypto.randomUUID(),
       ...tradeData,
     });
-    if (!response.ok) throw new Error("Failed to execute trade");
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || "Failed to execute trade");
+    }
     const data = await response.json();
     return data;
   } catch (error) {
@@ -219,7 +223,22 @@ export async function getTradeHistory(sessionId) {
 }
 
 /**
- * Get portfolio metrics
+ * Initialize paper trading account with initial deposit
+ */
+export async function initPaperAccount(initialCash) {
+  try {
+    const response = await authPost(`${API_BASE}/trades/init`, { initialCash });
+    if (!response.ok) throw new Error("Failed to initialize account");
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error("Error initializing account:", error);
+    return null;
+  }
+}
+
+/**
+ * Get portfolio metrics (cash, positions, P&L)
  */
 export async function getPortfolioMetrics(sessionId) {
   try {

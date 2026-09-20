@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { C, STOCKS, stockInfo, uid, fc, shortSym, INTERVALS, TRADING_PARAMS } from './lib/constants'
 import { analyzeStock } from './lib/analyze'
 import { fetchStock } from './lib/fetch'
-import { getMe, executeTradeOnServer } from './lib/trading'
+import { getMe, executeTradeOnServer, initPaperAccount, getTradeHistory, getPortfolioMetrics } from './lib/trading'
 import { Setup } from './components/Setup'
 import { WatchlistPanel } from './components/WatchlistPanel'
 import { Toasts } from './components/UI'
@@ -114,12 +114,23 @@ export default function App() {
     notify('BUY', `${qty}×${shortSym(symbol)} @ ${fc(price)}`,
       `Signal: ${analysis ? analysis.signal : 'BUY'} · Conf: ${analysis ? analysis.confidence : 0}%`)
 
-    // Fire-and-forget backend trade logging
+    // Send to backend and reconcile with fill price/commission
     if (user) {
       executeTradeOnServer(sessionIdR.current, {
         type: 'BUY', stock: symbol, qty, price,
         decision_confidence: analysis?.confidence || 0,
         execution_mode: isAuto ? 'AUTO' : 'MANUAL',
+      }).then(res => {
+        if (!res?.data?.fill) return
+        const fill = res.data.fill
+        const requestedTotal = qty * price
+        const actualTotal = (fill.fillPrice || price) * qty + (fill.commission || 0)
+        if (Math.abs(actualTotal - requestedTotal) > 0.01) {
+          const diff = requestedTotal - actualTotal
+          const correctedCash = cashR.current + diff
+          cashR.current = correctedCash
+          setCash(correctedCash)
+        }
       }).catch(() => {})
     }
 
@@ -157,12 +168,23 @@ export default function App() {
     }, ...t])
     notify('SELL', `${qty}×${shortSym(symbol)} @ ${fc(price)}`, `P&L: ${fc(pnl)}`)
 
-    // Fire-and-forget backend trade logging
+    // Send to backend and reconcile with fill price/commission
     if (user) {
       executeTradeOnServer(sessionIdR.current, {
         type: 'SELL', stock: symbol, qty, price,
         decision_confidence: analysis?.confidence || 0,
         execution_mode: isAuto ? 'AUTO' : 'MANUAL',
+      }).then(res => {
+        if (!res?.data?.fill) return
+        const fill = res.data.fill
+        const requestedProceeds = qty * price
+        const actualProceeds = (fill.fillPrice || price) * qty - (fill.commission || 0)
+        if (Math.abs(actualProceeds - requestedProceeds) > 0.01) {
+          const diff = actualProceeds - requestedProceeds
+          const correctedCash = cashR.current + diff
+          cashR.current = correctedCash
+          setCash(correctedCash)
+        }
       }).catch(() => {})
     }
 
@@ -286,6 +308,11 @@ export default function App() {
     setScreen('trading')
     setLoadMsg('Loading stocks…')
 
+    // Initialize backend ledger
+    if (user) {
+      initPaperAccount(amount).catch(() => {})
+    }
+
     const picks = pickStocks(amount)
     setWatchlist(picks)
 
@@ -296,6 +323,46 @@ export default function App() {
       setStockMap(m => ({ ...m, [symbol]: data }))
       if (analysis) setAnalyses(a => ({ ...a, [symbol]: analysis }))
     }))
+
+    // Load backend state (trade history, holdings)
+    const sessionId = sessionIdR.current
+    if (user) {
+      const [history, metrics] = await Promise.all([
+        getTradeHistory(sessionId),
+        getPortfolioMetrics(sessionId),
+      ])
+      if (history.length > 0) {
+        const mapped = history.map(ex => ({
+          id: ex._id || ex.executionId || uid(),
+          type: ex.side || ex.type,
+          symbol: ex.symbol,
+          name: stockMapR.current[ex.symbol]?.name || ex.symbol,
+          qty: ex.quantity || ex.qty,
+          price: ex.fillPrice || ex.price,
+          pnl: ex.realizedPnl,
+          total: ex.grossValue,
+          time: ex.executedAt
+            ? new Date(ex.executedAt).toLocaleTimeString('en-IN')
+            : new Date(ex.timestamp || Date.now()).toLocaleTimeString('en-IN'),
+          signal: ex.signal || '',
+          confidence: ex.decisionConfidence || 0,
+          isAuto: ex.executionMode === 'AUTO',
+        }))
+        setTrades(mapped)
+      }
+      if (metrics.cash != null) {
+        setCash(metrics.cash)
+        cashR.current = metrics.cash
+      }
+      if (metrics.positions && typeof metrics.positions === 'object') {
+        const h = {}
+        for (const [sym, p] of Object.entries(metrics.positions)) {
+          h[sym] = { qty: p.quantity || p.qty || 0, avgPrice: p.avgPrice || p.weightedAvgCost || 0 }
+        }
+        setHoldings(h)
+        holdingsR.current = h
+      }
+    }
 
     setLoadMsg('')
     setSelected(picks[0])

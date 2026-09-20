@@ -17,10 +17,11 @@
 7. [Running the Application](#running-the-application)
 8. [Project Structure](#project-structure)
 9. [Core Algorithms](#core-algorithms)
-10. [API Documentation](#api-documentation)
-11. [Usage Guide](#usage-guide)
-12. [Troubleshooting](#troubleshooting)
-13. [Security](#security)
+10. [Accounting Model](#accounting-model)
+11. [API Documentation](#api-documentation)
+12. [Usage Guide](#usage-guide)
+13. [Troubleshooting](#troubleshooting)
+14. [Security](#security)
 
 ---
 
@@ -34,7 +35,8 @@
 2. **Technical analysis** — Calculates RSI, MACD, EMA trends, Bollinger Bands, Stochastic, Volume, and ATR
 3. **Signal generation** — Weighted composite score from all indicators
 4. **Trade execution** — Paper trades executed in three modes: Full-AI, Semi-AI, or Manual
-5. **Learning** — Adapts indicator weights based on trade outcomes
+5. **Ledger-based accounting** — Immutable fill records, weighted-average cost basis, append-only cash ledger
+6. **Learning** — Adapts indicator weights based on trade outcomes (minimum 10 evaluations)
 
 ---
 
@@ -42,7 +44,7 @@
 
 ### Trading
 
-- **Paper Trading** — Simulate trades without real capital
+- **Paper Trading** — Simulate trades without real capital, ledger-based accounting
 - **Auto-Scanning** — Continuously scan 50+ NSE stocks
 - **Three Trading Modes:**
   - **FULL-AI** — Automatic execution, no confirmation needed
@@ -50,21 +52,23 @@
   - **MANUAL** — Analysis only, you decide everything
 - **Stop-Loss** — Auto-sell at configurable loss threshold (default -5%)
 - **Real-time Charts** — Interactive price charts with EMA, Bollinger Bands, and signals
+- **Idempotency Keys** — Duplicate order protection for concurrent requests
 
 ### Intelligence
 
 - **6 Standard Indicators** — RSI, MACD, EMA (9/21/50), Bollinger Bands, Stochastic, Volume
 - **Weighted Composite** — Each indicator scored and weighted for a single confidence score
 - **Confidence Thresholds** — Only trades when composite signal exceeds threshold
-- **Adaptive Learning** — Indicator weights adjusted based on trade outcomes
+- **Adaptive Learning** — Indicator weights adjusted based on trade outcomes with minimum sample threshold
 
 ### Dashboard
 
-- **Watchlist Panel** — Stock list with live prices and signal badges
+- **Watchlist Panel** — Stock list with live prices, signal badges, and SIM data indicator
 - **Chart Panel** — Price visualization with overlays
 - **Holdings Panel** — Positions, P&L, and trade history
 - **Settings Panel** — Toggle auto-trading, confirmations, stop-loss
 - **Toast Notifications** — Bottom-right trade alerts
+- **Auth** — Login/register in Setup screen, JWT-based session persistence
 
 ---
 
@@ -73,21 +77,22 @@
 ### Frontend
 
 - **React 18** — UI framework
-- **Vite** — Build tool and dev server
+- **Vite** — Build tool and dev server (code-split, lazy-loaded panels)
 - **Recharts** — Interactive charting
 
 ### Backend
 
 - **Node.js 18+** — Runtime
 - **Express.js** — Web framework
-- **MongoDB** — Database (users, trades, logs)
+- **MongoDB** — Database (users, orders, executions, positions, cash ledger)
 - **Mongoose** — MongoDB ODM
-- **JWT** — Authentication
+- **JWT** — Authentication (required at startup)
 - **bcryptjs** — Password hashing
+- **Helmet** — Security headers
 
 ### Data
 
-- **Yahoo Finance API** — Stock price data (via backend proxy)
+- **Yahoo Finance API** — Stock price data (via backend proxy, mock fallback flagged in UI)
 
 ---
 
@@ -125,10 +130,13 @@ Create `server/.env`:
 ```env
 PORT=5000
 MONGODB_URI=mongodb://localhost:27017/arbitrix
-JWT_SECRET=your-secret-key
+JWT_SECRET=your-secret-key-here
+CORS_ORIGIN=http://localhost:3000
 ```
 
-For MongoDB Atlas, replace `MONGODB_URI` with your Atlas connection string.
+- `JWT_SECRET` — **Required.** Server refuses to start without it.
+- `CORS_ORIGIN` — Comma-separated allowed origins (defaults to `localhost:3000,localhost:5173`).
+- For MongoDB Atlas, replace `MONGODB_URI` with your Atlas connection string.
 
 ---
 
@@ -165,23 +173,23 @@ arbitrix/
 │   └── logo.png
 │
 ├── server/
-│   ├── index.js              ← Express server + API routes + auth
+│   ├── index.js              ← Express server + API routes + auth + helmet
 │   ├── package.json
-│   ├── .env                  ← MONGODB_URI, JWT_SECRET, PORT
+│   ├── .env                  ← MONGODB_URI, JWT_SECRET, PORT, CORS_ORIGIN
 │   ├── validate.js           ← Module validation script
-│   ├── models.js             ← MongoDB schemas (User, DecisionLog, PaperTrade, etc.)
-│   ├── decisionEngine.js     ← Decision logging & trade evaluation
+│   ├── models.js             ← MongoDB schemas (10 models)
+│   ├── decisionEngine.js     ← Decision logging, trade evaluation, paper trading engine
 │   ├── learningEngine.js     ← Adaptive weight learning
 │   └── reportEngine.js       ← Market context & report generation
 │
 └── src/
     ├── main.jsx
-    ├── App.jsx
+    ├── App.jsx               ← State management, refs sync, auto-trading engine
     │
     ├── lib/
     │   ├── constants.js      ← Config: stocks, indicators, params
     │   ├── ta.js             ← Technical analysis (EMA, RSI, MACD, BB, Stochastic, ATR)
-    │   ├── analyze.js        ← Composite signal engine
+    │   ├── analyze.js        ← Composite signal engine (accepts optional param overrides)
     │   ├── fetch.js          ← Yahoo Finance data fetching (with mock fallback)
     │   └── trading.js        ← Trading modes, auth API, backend integration
     │
@@ -225,28 +233,58 @@ composite = 0.24 × trend_score
           + 0.15 × stoch_score
 ```
 
-- **composite > threshold** → BUY
-- **composite < -threshold** → SELL
+- **composite > 0.10** → BUY
+- **composite < -0.10** → SELL
 - **otherwise** → HOLD
 
 ### Adaptive Learning
 
 The system tracks trade outcomes per indicator and adjusts weights:
 
-- Indicators that predicted winners → weight increases
-- Indicators that predicted losers → weight decreases
-- Weights are normalized and clamped to prevent extreme values
+- Minimum 10 evaluations required before adaptation
+- Indicators that contributed to winners → weight increases
+- Indicators that contributed to losers → weight decreases
+- Weight change clamped to ±0.05 per cycle
+- Weights normalized to sum to 1.0 after each cycle
+- Per-indicator attribution based on actual signal component scores
+
+---
+
+## Accounting Model
+
+ARBITRIX uses a **ledger-based fill accounting** system for paper trading.
+
+### Long-Only Positions
+
+- `BUY` opens or increases a position (weighted-average cost basis)
+- `SELL` reduces or closes an existing position
+- SELL is rejected if position quantity is insufficient
+
+### Core Entities
+
+| Entity | Purpose |
+|--------|---------|
+| **Order** | User/strategy intent with idempotency key |
+| **Execution** | Immutable fill record (source of truth) |
+| **Position** | Aggregate position per user+symbol |
+| **CashEntry** | Append-only cash ledger |
+
+### Cost Basis
+
+- **Buy commission** (0.05%) added to cost basis
+- **Sell commission** (0.05%) subtracted from proceeds
+- Slippage simulated at 0.1%-0.3% and stored in execution record
+
+### Cash Balance
+
+Derived from the append-only `cash_entries` collection. The last entry's `balanceAfter` is the current balance.
 
 ---
 
 ## API Documentation
 
-### Stock Data
-
-```
-GET /api/stock/:symbol
-→ Yahoo Finance chart data
-```
+All protected endpoints require `Authorization: Bearer <token>` header.
+User ID is derived from the JWT token — never accepted from client input.
 
 ### Auth
 
@@ -256,52 +294,60 @@ POST /api/auth/login       { email, password }
 GET  /api/auth/me          (Bearer token)
 ```
 
-### Decision Logging
+### Stock Data
 
 ```
-POST /api/decisions/log              Log a trade decision
-GET  /api/decisions/history/:uid/:sid  Get decision history
-```
-
-### Trade Evaluation
-
-```
-POST /api/trades/evaluate            Evaluate a completed trade
-GET  /api/trades/accuracy/:uid/:sid  Get accuracy stats
+GET /api/stock/:symbol     → Yahoo Finance chart data (public)
 ```
 
 ### Paper Trading
 
 ```
-POST /api/trades/execute             Execute a paper trade
-POST /api/trades/close/:tradeId      Close a trade
-GET  /api/trades/history/:uid/:sid   Get trade history
-GET  /api/trades/metrics/:uid/:sid   Get portfolio metrics
+POST /api/trades/init                { initialCash }           — Initialize account
+POST /api/trades/execute             { sessionId, type, stock, qty, price, idempotencyKey? }
+POST /api/trades/close/:tradeId      { exit_price }
+GET  /api/trades/history/:sessionId  → Execution history
+GET  /api/trades/metrics/:sessionId  → Portfolio metrics (cash, positions, P&L)
+```
+
+### Decision Logging
+
+```
+POST /api/decisions/log              { sessionId, ...decisionData }
+GET  /api/decisions/history/:sessionId
+```
+
+### Trade Evaluation
+
+```
+POST /api/trades/evaluate            { sessionId, ...evalData }
+GET  /api/trades/accuracy/:sessionId
 ```
 
 ### Learning
 
 ```
-POST /api/learning/initialize/:uid   Initialize learning params
-POST /api/learning/adapt/:uid        Run adaptation cycle
-GET  /api/learning/parameters/:uid   Get current params
-GET  /api/learning/progress/:uid     Get learning progress
+POST /api/learning/initialize/:userId   { sessionId }
+POST /api/learning/adapt/:userId        { sessionId, lookbackWindow }
+GET  /api/learning/parameters/:userId
+GET  /api/learning/progress/:userId
+GET  /api/learning/regime-insights/:userId
 ```
 
 ### Market Context
 
 ```
-GET  /api/context/market             Get market context
+GET  /api/context/market
 GET  /api/context/volatility-multiplier/:vix
-POST /api/context/interpret          Interpret context
+POST /api/context/interpret          { context }
 ```
 
 ### Reports
 
 ```
-POST /api/reports/trade              Generate trade report
-POST /api/reports/session            Generate session report
-GET  /api/reports/:reportId          Get a report
+POST /api/reports/trade              { sessionId, decisionLogId }
+POST /api/reports/session            { sessionId }
+GET  /api/reports/:reportId
 ```
 
 ---
@@ -333,6 +379,7 @@ GET  /api/reports/:reportId          Get a report
 
 **Backend won't start:**
 - Check `node --version` (needs 18+)
+- Verify `JWT_SECRET` is set in `.env` (server refuses to start without it)
 - Verify `MONGODB_URI` in `.env`
 - Ensure MongoDB is running
 
@@ -343,16 +390,22 @@ GET  /api/reports/:reportId          Get a report
 **Stocks not loading:**
 - Yahoo Finance may be rate-limited
 - Check backend logs for fetch errors
+- SIM badge on watchlist indicates mock data (auto-trading disabled for mock)
 
 ---
 
 ## Security
 
 - `.env` files are gitignored (never commit secrets)
-- JWT authentication for all protected endpoints
-- bcrypt password hashing
-- CORS enabled for local development
-- No API keys required for core functionality
+- `JWT_SECRET` required at startup — no fallback
+- JWT authentication on all protected endpoints
+- `requireAuth` middleware derives userId from token (never from client)
+- bcrypt password hashing (pre-save hook)
+- Helmet security headers (X-Content-Type-Options, X-Frame-Options, etc.)
+- CORS allowlist from environment variable
+- Input validation on auth and trade endpoints
+- Idempotency keys prevent duplicate trade executions
+- Mock data flagged in UI, auto-execution blocked for mock data
 
 ---
 
@@ -364,5 +417,5 @@ This system uses algorithmic signals that are not guaranteed to be profitable. N
 
 ---
 
-**Version:** 3.0.0  
+**Version:** 4.0.0
 **Last Updated:** September 2026
